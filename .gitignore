@@ -1,0 +1,15 @@
+# Ignore Database files
+*.sqlite3
+*.db
+monitor.db
+db.sqlite3
+
+# Ignore Bytecode and Cache
+__pycache__/
+*.py[cod]
+
+# Ignore Environment settings
+.env
+venv/
+env/
+.DS_Store

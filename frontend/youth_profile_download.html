@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Youth Profile Form - {{ barangay_name }}</title>
+    <style>
+        :root {
+            --ink: #19386f;
+            --ink-soft: #5c6f92;
+            --line: #cfd7e6;
+            --paper: #ffffff;
+            --panel: #f7f9fc;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #e9eef7;
+            color: #1e293b;
+        }
+
+        .sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 18px auto;
+            background: var(--paper);
+            padding: 16mm 14mm;
+            box-shadow: 0 8px 28px rgba(17, 24, 39, 0.12);
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 14px;
+            align-items: start;
+            margin-bottom: 14px;
+        }
+
+        .hero-block {
+            border: 2px solid var(--ink);
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        }
+
+        .eyebrow {
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--ink-soft);
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .title {
+            font-size: 28px;
+            line-height: 1.05;
+            font-weight: 800;
+            color: var(--ink);
+            margin: 0 0 6px 0;
+        }
+
+        .subtitle {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.45;
+            color: #4b5563;
+        }
+
+        .meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .meta-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+
+        .meta-label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--ink-soft);
+            margin-bottom: 4px;
+            font-weight: 700;
+        }
+
+        .meta-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .note {
+            border: 1px solid var(--line);
+            background: #fbfdff;
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .section {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .section-title {
+            background: var(--ink);
+            color: white;
+            font-size: 13px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            padding: 10px 14px;
+            font-weight: 700;
+        }
+
+        .section-body {
+            padding: 14px;
+            background: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 14px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .field,
+        .check-group,
+        .textarea-block {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--ink-soft);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        input[type="number"],
+        input[type="email"],
+        textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 13px;
+            background: #fff;
+            color: #0f172a;
+        }
+
+        textarea {
+            min-height: 86px;
+            resize: vertical;
+        }
+
+        input[readonly] {
+            background: #f8fbff;
+            color: #334155;
+        }
+
+        .checks {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px 18px;
+            padding: 2px 0;
+        }
+
+        .checks.cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .checks.cols-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #1f2937;
+        }
+
+        .check-item input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            accent-color: var(--ink);
+        }
+
+        .check-card {
+            border: 1px solid var(--line);
+            background: #fbfdff;
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--line);
+            margin: 12px 0;
+        }
+
+        .footer-line {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .signature {
+            border-top: 1px solid #64748b;
+            padding-top: 8px;
+            text-align: center;
+            font-size: 12px;
+            color: #475569;
+            margin-top: 28px;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .toolbar button {
+            border: none;
+            background: var(--ink);
+            color: white;
+            border-radius: 999px;
+            padding: 10px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+
+            .sheet {
+                width: auto;
+                min-height: auto;
+                margin: 0;
+                box-shadow: none;
+                padding: 0;
+            }
+
+            .toolbar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sheet">
+        <div class="toolbar">
+            <button type="button" onclick="window.print()">Print Form</button>
+        </div>
+
+        <div class="hero">
+            <div class="hero-block">
+                <div class="eyebrow">LYDO Manual Intake Sheet</div>
+                <h1 class="title">Youth Profile Form</h1>
+                <p class="subtitle">
+                    Use this blank form for manual data gathering. The completed answers can be encoded later
+                    into the LYDO Youth Profile system using the same field structure.
+                </p>
+            </div>
+            <div class="hero-block">
+                <div class="meta">
+                    <div class="meta-card">
+                        <span class="meta-label">Barangay</span>
+                        <div class="meta-value">{{ barangay_name }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <span class="meta-label">Municipality</span>
+                        <div class="meta-value">{{ municipality_name }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <span class="meta-label">Province</span>
+                        <div class="meta-value">{{ province_name }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="note">
+            Fill out all applicable information. Check the appropriate boxes for classification items such as
+            <strong>In School Youth</strong> and <strong>Out of School Youth</strong>.
+        </div>
+
+        <div class="section">
+            <div class="section-title">Personal Information</div>
+            <div class="section-body">
+                <div class="grid">
+                    <div class="field" style="grid-column: 1 / -1;">
+                        <label>Full Name</label>
+                        <input type="text" name="name" placeholder="Last, First Middle">
+                    </div>
+                    <div class="field">
+                        <label>Birthdate</label>
+                        <input type="text" name="birthdate">
+                    </div>
+                    <div class="field">
+                        <label>Age</label>
+                        <input type="number" name="age" min="0">
+                    </div>
+                    <div class="check-group">
+                        <label>Sex</label>
+                        <div class="checks">
+                            <label class="check-item"><input type="checkbox" name="sex_male"> Male</label>
+                            <label class="check-item"><input type="checkbox" name="sex_female"> Female</label>
+                        </div>
+                    </div>
+                    <div class="check-group">
+                        <label>Civil Status</label>
+                        <div class="checks">
+                            {% for option in civil_status_options %}
+                            <label class="check-item"><input type="checkbox" name="civil_status_{{ forloop.counter }}"> {{ option }}</label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Religion</label>
+                        <input type="text" name="religion">
+                    </div>
+                    <div class="field">
+                        <label>Purok</label>
+                        <input type="text" name="purok">
+                    </div>
+                    <div class="field">
+                        <label>Barangay</label>
+                        <input type="text" name="barangay" value="{{ barangay_name }}" readonly>
+                    </div>
+                    <div class="field">
+                        <label>Municipality</label>
+                        <input type="text" name="municipality" value="{{ municipality_name }}" readonly>
+                    </div>
+                    <div class="field">
+                        <label>Province</label>
+                        <input type="text" name="province" value="{{ province_name }}" readonly>
+                    </div>
+                    <div class="field">
+                        <label>Email</label>
+                        <input type="email" name="email">
+                    </div>
+                    <div class="field">
+                        <label>Mobile Number</label>
+                        <input type="text" name="contact_number">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Groups and Needs</div>
+            <div class="section-body">
+                <div class="check-card">
+                    <div class="check-group">
+                        <label>Youth Classification</label>
+                        <div class="checks cols-3">
+                            <label class="check-item"><input type="checkbox" name="is_in_school"> In School Youth</label>
+                            <label class="check-item"><input type="checkbox" name="is_osy"> Out of School Youth</label>
+                            <label class="check-item"><input type="checkbox" name="is_working_youth"> Working Youth</label>
+                            <label class="check-item"><input type="checkbox" name="is_unemployed"> Unemployed Youth</label>
+                            <label class="check-item"><input type="checkbox" name="is_ip"> Indigenous People Youth</label>
+                            <label class="check-item"><input type="checkbox" name="is_pwd"> Youth with Disability</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="grid">
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>OSY Details</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="osy_willing_yes"> Willing to enroll</label>
+                                <label class="check-item"><input type="checkbox" name="osy_willing_no"> Not willing to enroll</label>
+                            </div>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="check-group">
+                            <label>OSY Program Type</label>
+                            <div class="checks">
+                                {% for option in osy_program_options %}
+                                <label class="check-item"><input type="checkbox" name="osy_program_{{ forloop.counter }}"> {{ option }}</label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>Reason if not enrolling</label>
+                            <input type="text" name="osy_reason_no_enroll">
+                        </div>
+                    </div>
+
+                    <div class="check-card">
+                        <div class="field">
+                            <label>Type of Disability</label>
+                            <input type="text" name="disability_type">
+                        </div>
+                        <div class="divider"></div>
+                        <div class="check-group">
+                            <label>Specific Needs</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="has_specific_needs"> Mark if applicable</label>
+                            </div>
+                        </div>
+                        <div class="checks" style="margin-top: 8px;">
+                            {% for option in specific_needs_options %}
+                            <label class="check-item"><input type="checkbox" name="specific_need_{{ forloop.counter }}"> {{ option }}</label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="grid">
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>7 Tribes / Indigenous Group</label>
+                            <div class="checks">
+                                {% for option in tribe_options %}
+                                <label class="check-item"><input type="checkbox" name="tribe_{{ forloop.counter }}"> {{ option }}</label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>Selected Tribe</label>
+                            <input type="text" name="tribe_name">
+                        </div>
+                    </div>
+
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>Muslim Group</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="is_muslim"> Mark if Muslim</label>
+                            </div>
+                        </div>
+                        <div class="checks" style="margin-top: 8px;">
+                            {% for option in muslim_group_options %}
+                            <label class="check-item"><input type="checkbox" name="muslim_group_{{ forloop.counter }}"> {{ option }}</label>
+                            {% endfor %}
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>Selected Group</label>
+                            <input type="text" name="muslim_group">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Education and Work</div>
+            <div class="section-body">
+                <div class="check-card">
+                    <div class="check-group">
+                        <label>Highest Education</label>
+                        <div class="checks cols-4">
+                            {% for option in education_level_options %}
+                            <label class="check-item"><input type="checkbox" name="education_level_{{ forloop.counter }}"> {{ option }}</label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="grid">
+                    <div class="field">
+                        <label>Course</label>
+                        <input type="text" name="course">
+                    </div>
+                    <div class="field">
+                        <label>School / University</label>
+                        <input type="text" name="school_name">
+                    </div>
+                    <div class="field">
+                        <label>Work Status</label>
+                        <input type="text" name="work_status" placeholder="Employed, Unemployed, Self-employed">
+                    </div>
+                    <div class="field">
+                        <label>Scholarship Program</label>
+                        <input type="text" name="scholarship_program">
+                    </div>
+                </div>
+
+                <div class="check-card" style="margin-top: 12px;">
+                    <div class="checks">
+                        <label class="check-item"><input type="checkbox" name="is_scholar"> Scholarship Beneficiary</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Civic and Other</div>
+            <div class="section-body">
+                <div class="grid">
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>Voter Status</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="registered_voter_sk"> SK Voter</label>
+                                <label class="check-item"><input type="checkbox" name="registered_voter_national"> National Voter</label>
+                                <label class="check-item"><input type="checkbox" name="voted_last_sk"> Voted in Last SK Election</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>4Ps and Family</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="is_4ps"> 4Ps Beneficiary</label>
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>Number of Children</label>
+                            <input type="number" name="number_of_children" min="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="grid">
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>KK Assembly Attendance</label>
+                            <div class="checks">
+                                <label class="check-item"><input type="checkbox" name="attended_kk_yes"> Attended KK Assembly</label>
+                                <label class="check-item"><input type="checkbox" name="attended_kk_no"> Did not attend</label>
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>If yes, how many times</label>
+                            <input type="number" name="kk_assembly_times" min="0">
+                        </div>
+                    </div>
+
+                    <div class="check-card">
+                        <div class="check-group">
+                            <label>If no, reason</label>
+                            <div class="checks">
+                                {% for option in kk_no_reason_options %}
+                                <label class="check-item"><input type="checkbox" name="kk_reason_{{ forloop.counter }}"> {{ option }}</label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top: 10px;">
+                            <label>Other reason / notes</label>
+                            <input type="text" name="kk_assembly_no_reason">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="footer-line">
+                    <div class="signature">Signature of Youth Respondent</div>
+                    <div class="signature">Signature of Encoder / Barangay Staff</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

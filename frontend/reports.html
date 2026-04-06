@@ -1,0 +1,891 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports | LYDO Youth Profiling</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .page-body {
+            max-width: min(96vw, 1680px);
+        }
+        .report-toolbar-card .report-card-body {
+            display: grid;
+            gap: 16px;
+        }
+        .report-filter-grid {
+            display: grid;
+            grid-template-columns: minmax(220px, 1.4fr) minmax(220px, 1fr);
+            gap: 14px;
+        }
+        .report-field label {
+            display: block;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-light);
+            margin-bottom: 6px;
+        }
+        .report-table-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .report-meta-note {
+            font-size: 0.84rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+        .gender-key {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .gender-key-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-base);
+        }
+        .gender-key-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+        .gender-key-dot.male {
+            background: #2563eb;
+        }
+        .gender-key-dot.female {
+            background: #e11d48;
+        }
+        .category-chip-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .category-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: #fff;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-base);
+        }
+        .category-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            flex-shrink: 0;
+        }
+        .table-shell {
+            border: 1px solid var(--border);
+            border-radius: var(--r-lg);
+            overflow: hidden;
+            background: #fff;
+        }
+        .report-table-panel .report-card-body {
+            padding: 16px 16px 18px;
+        }
+        .report-legend-panel .report-card-header {
+            padding-bottom: 10px;
+        }
+        .report-legend-panel .report-card-title {
+            font-size: 0.92rem;
+        }
+        .report-legend-panel .report-card-body {
+            max-height: none;
+            overflow: visible;
+            padding: 12px 14px 14px;
+        }
+        .report-legend-panel #legend-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+        }
+        .report-legend-panel .legend-item {
+            gap: 9px;
+            padding: 8px 9px;
+            margin-bottom: 0;
+            border-left-width: 4px;
+            font-size: 0.78rem;
+        }
+        .report-legend-panel .legend-index {
+            min-width: 26px;
+            font-size: 0.66rem;
+            padding: 3px 5px;
+        }
+        .report-legend-panel .legend-swatch {
+            width: 12px;
+            height: 12px;
+        }
+        .report-legend-panel .legend-name {
+            font-size: 0.78rem;
+            line-height: 1.2;
+        }
+        .report-table-scroll {
+            overflow-x: auto;
+        }
+        .report-metric-table {
+            width: 100%;
+            min-width: 0;
+            border-collapse: separate;
+            border-spacing: 0;
+            table-layout: fixed;
+            font-size: 0.76rem;
+        }
+        .report-metric-table thead th {
+            background: #f8faff;
+            color: var(--text-muted);
+            font-size: 0.66rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 9px 6px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            text-align: center;
+        }
+        .report-metric-table tbody td {
+            padding: 8px 6px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+            color: var(--text-base);
+            text-align: center;
+        }
+        .report-metric-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .report-metric-table tbody tr:hover td {
+            background: #fbfcff;
+        }
+        .report-metric-table th.active-col,
+        .report-metric-table td.active-col {
+            background: rgba(35, 81, 166, 0.08);
+            color: var(--navy);
+            font-weight: 700;
+        }
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: var(--navy-light);
+            font-weight: 800;
+            font-size: 0.72rem;
+        }
+        .barangay-cell {
+            min-width: 190px;
+            max-width: 220px;
+            text-align: left !important;
+        }
+        .barangay-name {
+            font-weight: 700;
+            color: var(--navy);
+            font-size: 0.78rem;
+            line-height: 1.1;
+        }
+        .barangay-score {
+            font-size: 0.66rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .total-cell {
+            min-width: 84px;
+        }
+        .total-stack {
+            display: grid;
+            gap: 4px;
+            justify-items: center;
+        }
+        .total-breakdown {
+            font-size: 0.64rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .gender-ratio-wrap {
+            display: grid;
+            gap: 5px;
+        }
+        .gender-ratio-bar {
+            height: 28px;
+            display: flex;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #eef3fb;
+            box-shadow: inset 0 0 0 1px rgba(15, 37, 88, 0.08);
+            position: relative;
+        }
+        .gender-ratio-segment {
+            height: 100%;
+            min-width: 0;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .gender-ratio-segment.male {
+            background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+        }
+        .gender-ratio-segment.female {
+            background: linear-gradient(90deg, #fb7185, #e11d48);
+        }
+        .gender-ratio-text {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+            font-size: 0.7rem;
+            font-weight: 900;
+            letter-spacing: 0.01em;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .gender-ratio-text .male {
+            color: #eff6ff;
+            text-shadow: 0 1px 2px rgba(15, 23, 42, 0.28);
+        }
+        .gender-ratio-text .female {
+            color: #fff1f2;
+            text-shadow: 0 1px 2px rgba(15, 23, 42, 0.28);
+        }
+        .gender-ratio-empty-text {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: var(--text-muted);
+            z-index: 1;
+        }
+        .gender-ratio-empty {
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(148, 163, 184, 0.16),
+                rgba(148, 163, 184, 0.16) 8px,
+                rgba(148, 163, 184, 0.28) 8px,
+                rgba(148, 163, 184, 0.28) 16px
+            );
+        }
+        .gender-ratio-labels {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 0.62rem;
+            font-weight: 700;
+        }
+        .gender-ratio-labels .male {
+            color: #2563eb;
+        }
+        .gender-ratio-labels .female {
+            color: #e11d48;
+        }
+        .metric-group-head {
+            min-width: 72px;
+        }
+        .metric-group-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            justify-content: center;
+        }
+        .metric-group-sub {
+            display: block;
+            margin-top: 2px;
+            font-size: 0.56rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            text-transform: none;
+            color: var(--text-light);
+        }
+        .compact-metric-cell {
+            min-width: 74px;
+        }
+        .compact-metric-total {
+            font-size: 0.74rem;
+            font-weight: 800;
+            color: var(--navy);
+            line-height: 1;
+        }
+        .compact-metric-split {
+            display: grid;
+            gap: 5px;
+            margin-top: 6px;
+            font-size: 0.76rem;
+            line-height: 1.2;
+        }
+        .compact-metric-split span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 54px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+        }
+        .compact-metric-split .male {
+            color: #2563eb;
+            background: rgba(37, 99, 235, 0.1);
+        }
+        .compact-metric-split .female {
+            color: #e11d48;
+            background: rgba(225, 29, 72, 0.1);
+        }
+        .compact-metric-split .total {
+            color: var(--navy);
+            background: rgba(15, 37, 88, 0.1);
+        }
+        .metric-group-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+        .metric-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 32px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #f4f7ff;
+            color: var(--navy);
+            font-weight: 700;
+            font-size: 0.7rem;
+        }
+        .metric-pill.total {
+            background: linear-gradient(135deg, #e8eeff, #eef5ff);
+        }
+        .barangay-ratio-inline {
+            display: grid;
+            gap: 4px;
+            margin-top: 6px;
+        }
+        .barangay-ratio-inline .gender-ratio-bar {
+            height: 30px;
+        }
+        .report-metric-table th:first-child,
+        .report-metric-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            background: #fff;
+        }
+        .report-metric-table th:nth-child(2),
+        .report-metric-table td:nth-child(2) {
+            position: sticky;
+            left: 46px;
+            z-index: 2;
+            background: #fff;
+            box-shadow: 8px 0 12px -12px rgba(15, 37, 88, 0.28);
+        }
+        .report-metric-table thead th:first-child,
+        .report-metric-table thead th:nth-child(2) {
+            background: #f8faff;
+            z-index: 4;
+        }
+        .report-metric-table tbody tr:hover td:first-child,
+        .report-metric-table tbody tr:hover td:nth-child(2) {
+            background: #fbfcff;
+        }
+        .empty-report-state {
+            padding: 36px 18px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        @media (max-width: 991px) {
+            .report-table-meta {
+                align-items: flex-start;
+            }
+            .page-body {
+                max-width: none;
+            }
+        }
+        @media (max-width: 767px) {
+            .report-filter-grid {
+                grid-template-columns: 1fr;
+            }
+            .report-legend-panel #legend-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="app-navbar">
+    <button class="btn-navbar-menu" onclick="toggleSidebar()" aria-label="Menu">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+        Menu
+    </button>
+    <a class="navbar-brand-area" href="/">
+        <img src="{% static 'images/logo.png' %}" alt="LYDO Logo">
+        <div>
+            <div class="brand-text-main">LYDO Youth Profiling</div>
+            <div class="brand-text-sub">Manolo Fortich, Bukidnon</div>
+        </div>
+    </a>
+    <div class="navbar-spacer"></div>
+</nav>
+
+<div id="side-menu" aria-hidden="true">
+    <div class="side-menu-header">
+        <div class="side-menu-logo">
+            <img src="{% static 'images/logo.png' %}" alt="logo">
+            <span>LYDO</span>
+        </div>
+        <button class="btn-close-side" onclick="closeSidebar()" aria-label="Close">&times;</button>
+    </div>
+    <div class="side-menu-body">
+        <div class="side-menu-section">Navigation</div>
+        <a href="/" class="menu-item" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+        </a>
+        <a href="/reports/" class="menu-item active" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Reports
+        </a>
+        <a href="/heatmap/" class="menu-item" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18"></path><path d="M9 3v18"></path><path d="M15 3v18"></path></svg>
+            Heatmap
+        </a>
+    </div>
+</div>
+<div id="side-overlay" class="side-overlay" onclick="closeSidebar()" aria-hidden="true"></div>
+
+<div class="page-body">
+    <div class="page-header">
+        <div>
+            <h1 class="page-header-title">Analytics &amp; Reports</h1>
+            <p class="page-header-sub">Filtered barangay view with male and female breakdowns for planning, prioritization, and government reporting</p>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="report-card report-toolbar-card">
+                <div class="report-card-header">
+                    <div class="report-card-icon">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="12" y1="21" x2="12" y2="10"></line><line x1="20" y1="21" x2="20" y2="4"></line></svg>
+                    </div>
+                    <div>
+                        <div class="report-card-title">Filtered View</div>
+                        <div style="font-size:.78rem;color:var(--text-muted);">Sort barangays by one category while keeping the male and female breakdown visible across the full table</div>
+                    </div>
+                </div>
+                <div class="report-card-body">
+                    <div class="report-filter-grid">
+                        <div class="report-field">
+                            <label for="barangay-search-input">Search Barangay</label>
+                            <input id="barangay-search-input" class="form-control" type="search" placeholder="Find a barangay by name...">
+                        </div>
+                        <div class="report-field">
+                            <label for="category-filter">Category Filter</label>
+                            <select id="category-filter" class="form-select"></select>
+                        </div>
+                    </div>
+                    <div class="report-table-meta">
+                        <p id="report-summary-note" class="report-meta-note">Loading report data...</p>
+                        <div class="gender-key" aria-label="Gender legend">
+                            <span class="gender-key-item"><span class="gender-key-dot male"></span>Male</span>
+                            <span class="gender-key-item"><span class="gender-key-dot female"></span>Female</span>
+                        </div>
+                    </div>
+                    <div id="category-chip-row" class="category-chip-row"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="report-card report-legend-panel">
+                <div class="report-card-header">
+                    <div class="report-card-icon">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon></svg>
+                    </div>
+                    <div>
+                        <div class="report-card-title">Barangay Legend</div>
+                        <div style="font-size:.78rem;color:var(--text-muted);">All barangays currently available in the system</div>
+                    </div>
+                </div>
+                <div class="report-card-body">
+                    <div id="legend-list">
+                        <div class="text-muted" style="font-size:.8rem;padding:8px 0;">Loading barangays...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="report-card report-table-panel">
+                <div class="report-card-header">
+                    <div class="report-card-icon">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="9" y1="4" x2="9" y2="20"></line></svg>
+                    </div>
+                    <div>
+                        <div class="report-card-title">Barangay Data Table with Sparklines</div>
+                        <div style="font-size:.78rem;color:var(--text-muted);">Compare total youth, the male versus female ratio, and each category split without leaving the table</div>
+                    </div>
+                </div>
+                <div class="report-card-body">
+                    <div id="report-table-shell" class="table-shell">
+                        <div class="empty-report-state">Loading barangay report data...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CATEGORY_META = [
+        { key: 'all', label: 'Total Youth', short: 'ALL', color: '#0f2558' },
+        { key: 'isy', label: 'In School Youth', short: 'ISY', color: '#2351a6' },
+        { key: 'osy', label: 'Out of School Youth', short: 'OSY', color: '#d97706' },
+        { key: 'yd', label: '4Ps Beneficiary', short: '4PS', color: '#e11d48' },
+        { key: 'iy', label: 'Youth with Disability', short: 'PWD', color: '#7c3aed' },
+        { key: 'ip', label: 'IP Youth', short: 'IP', color: '#0ea5a4' },
+        { key: 'wk', label: 'Working Youth', short: 'WK', color: '#059669' },
+        { key: 'uy', label: 'Unemployed Youth', short: 'UY', color: '#64748b' }
+    ];
+
+    const BARANGAY_PALETTE = [
+        '#E63946','#2A9D8F','#4361EE','#F77F00','#8338EC',
+        '#118AB2','#FF006E','#6A994E','#006D77','#9C6644',
+        '#7B2CBF','#023E8A','#588157','#E76F51','#3A86FF',
+        '#00A896','#C1121F','#4D908E','#7F5539','#5A189A',
+        '#1D3557','#D00000'
+    ];
+
+    const GENDER_META = {
+        male: { label: 'Male', short: 'M', color: '#2563eb' },
+        female: { label: 'Female', short: 'F', color: '#e11d48' }
+    };
+
+    const METRIC_ORDER = CATEGORY_META.filter(item => item.key !== 'all');
+    let reportRows = [];
+    let selectedCategory = 'all';
+    let searchTerm = '';
+
+    function paletteColors(n) {
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(BARANGAY_PALETTE[i % BARANGAY_PALETTE.length]);
+        return out;
+    }
+
+    function hexToRgba(hex, alpha) {
+        const normalized = String(hex || '').replace('#', '');
+        if (normalized.length !== 6) return `rgba(15, 37, 88, ${alpha})`;
+        const r = parseInt(normalized.slice(0, 2), 16);
+        const g = parseInt(normalized.slice(2, 4), 16);
+        const b = parseInt(normalized.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function toNumber(value) {
+        return Number(value || 0);
+    }
+
+    function scoreForRow(row) {
+        if (selectedCategory === 'all') {
+            return row.totalYouth;
+        }
+        return toNumber(row.categories[selectedCategory]?.total);
+    }
+
+    function renderCategoryOptions() {
+        const select = document.getElementById('category-filter');
+        if (!select) return;
+        select.innerHTML = CATEGORY_META.map(metric => `<option value="${metric.key}">${metric.label}</option>`).join('');
+        select.value = selectedCategory;
+    }
+
+    function renderCategoryChips() {
+        const chipRow = document.getElementById('category-chip-row');
+        if (!chipRow) return;
+        chipRow.innerHTML = METRIC_ORDER.map(metric => `
+            <span class="category-chip" style="border-color:${hexToRgba(metric.color, 0.2)}; background:${hexToRgba(metric.color, 0.08)}; color:${metric.color};">
+                <span class="category-dot" style="background:${metric.color};"></span>
+                ${metric.short} / ${metric.label}
+            </span>
+        `).join('');
+    }
+
+    function getVisibleRows() {
+        const normalizedSearch = searchTerm.trim().toLowerCase();
+        return reportRows.filter(row => row.name.toLowerCase().includes(normalizedSearch));
+    }
+
+    function renderSummary(rows) {
+        const note = document.getElementById('report-summary-note');
+        if (!note) return;
+        const selectedMeta = CATEGORY_META.find(item => item.key === selectedCategory) || CATEGORY_META[0];
+        if (!rows.length) {
+            note.textContent = 'No barangays match the current search or filter.';
+            return;
+        }
+
+        const top = rows.reduce((best, row) => scoreForRow(row) > scoreForRow(best) ? row : best, rows[0]);
+        const value = scoreForRow(top);
+        if (selectedCategory === 'all') {
+            note.textContent = `Showing ${rows.length} barangays in official legend order. Highest total: ${top.name} (${value}, ${top.maleTotal} male / ${top.femaleTotal} female).`;
+            return;
+        }
+
+        const topBreakdown = top.categories[selectedCategory] || { male: 0, female: 0 };
+        note.textContent = `Showing ${rows.length} barangays in official legend order. Highest right now for ${selectedMeta.label}: ${top.name} (${value}, ${topBreakdown.male} male / ${topBreakdown.female} female).`;
+    }
+
+    function buildCompactGenderRatio(row) {
+        if (!row.totalYouth) {
+            return `
+                <div class="barangay-ratio-inline">
+                    <div class="gender-ratio-bar">
+                        <div class="gender-ratio-empty"></div>
+                        <div class="gender-ratio-empty-text">M 0% / F 0%</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        const maleWidth = ((row.maleTotal / row.totalYouth) * 100).toFixed(1);
+        const femaleWidth = ((row.femaleTotal / row.totalYouth) * 100).toFixed(1);
+        return `
+            <div class="barangay-ratio-inline">
+                <div class="gender-ratio-bar" title="${row.name}: ${row.maleTotal} male (${maleWidth}%), ${row.femaleTotal} female (${femaleWidth}%)">
+                    <div class="gender-ratio-segment male" style="width:${maleWidth}%;"></div>
+                    <div class="gender-ratio-segment female" style="width:${femaleWidth}%;"></div>
+                    <div class="gender-ratio-text">
+                        <span class="male">M ${maleWidth}%</span>
+                        <span class="female">F ${femaleWidth}%</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderTable() {
+        const shell = document.getElementById('report-table-shell');
+        if (!shell) return;
+
+        const rows = getVisibleRows();
+        renderSummary(rows);
+
+        if (!rows.length) {
+            shell.innerHTML = '<div class="empty-report-state">No barangays match the current search.</div>';
+            return;
+        }
+
+        const groupHeaders = METRIC_ORDER.map(metric => `
+            <th class="metric-group-head ${selectedCategory === metric.key ? 'active-col' : ''}" title="${metric.label}">
+                <span class="metric-group-label">
+                    <span class="metric-group-dot" style="background:${metric.color};"></span>
+                    ${metric.short}
+                </span>
+                <span class="metric-group-sub">T / M-F</span>
+            </th>
+        `).join('');
+
+        const bodyRows = rows.map((row, index) => {
+            const score = scoreForRow(row);
+            const selectedMeta = CATEGORY_META.find(item => item.key === selectedCategory) || CATEGORY_META[0];
+            const subtext = selectedCategory === 'all'
+                ? `Total Youth: ${row.totalYouth}`
+                : `${selectedMeta.short}: ${score}`;
+
+            const metricCells = METRIC_ORDER.map(metric => {
+                const detail = row.categories[metric.key] || { male: 0, female: 0 };
+                const total = Number(detail.male || 0) + Number(detail.female || 0);
+                const activeClass = selectedCategory === metric.key ? 'active-col' : '';
+                return `
+                    <td class="compact-metric-cell ${activeClass}">
+                        <div class="compact-metric-total">${total}</div>
+                        <div class="compact-metric-split">
+                            <span class="male">M ${detail.male}</span>
+                            <span class="female">F ${detail.female}</span>
+                            <span class="total">T ${total}</span>
+                        </div>
+                    </td>
+                `;
+            }).join('');
+
+            return `
+                <tr>
+                    <td><span class="rank-badge">${String(row.legendIndex).padStart(2, '0')}</span></td>
+                    <td class="barangay-cell">
+                        <div class="barangay-name">${row.name}</div>
+                        <div class="barangay-score">${subtext}</div>
+                        ${buildCompactGenderRatio(row)}
+                    </td>
+                    <td class="total-cell ${selectedCategory === 'all' ? 'active-col' : ''}">
+                        <div class="total-stack">
+                            <span class="metric-pill total">${row.totalYouth}</span>
+                            <div class="total-breakdown">${row.maleTotal} M / ${row.femaleTotal} F</div>
+                        </div>
+                    </td>
+                    ${metricCells}
+                </tr>
+            `;
+        }).join('');
+
+        shell.innerHTML = `
+            <div class="report-table-scroll">
+                <table class="report-metric-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Barangay</th>
+                            <th class="${selectedCategory === 'all' ? 'active-col' : ''}">Total</th>
+                            ${groupHeaders}
+                        </tr>
+                    </thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function renderBarangayLegend(barangays) {
+        const legendList = document.getElementById('legend-list');
+        if (!legendList) return;
+        if (!Array.isArray(barangays) || !barangays.length) {
+            legendList.innerHTML = '<div class="text-muted" style="font-size:.8rem;padding:8px 0;">No barangays found.</div>';
+            return;
+        }
+
+        const colors = paletteColors(barangays.length);
+        legendList.innerHTML = barangays.map((barangay, index) => {
+            const color = colors[index];
+            const bg = hexToRgba(color, 0.12);
+            const border = hexToRgba(color, 0.24);
+            const glow = hexToRgba(color, 0.18);
+            const indexLabel = String(index + 1).padStart(2, '0');
+            return `<div class="legend-item" style="--legend-color:${color};--legend-bg:${bg};--legend-border:${border};--legend-glow:${glow};">
+                <span class="legend-index">${indexLabel}</span>
+                <span class="legend-swatch" style="background:${color}"></span>
+                <span class="legend-name">${barangay.name}</span>
+            </div>`;
+        }).join('');
+    }
+
+    async function initReports() {
+        const tableShell = document.getElementById('report-table-shell');
+        try {
+            const [barangayResponse, demographicsResponse] = await Promise.all([
+                fetch('/api/barangays/'),
+                fetch('/api/demographics/')
+            ]);
+
+            if (!barangayResponse.ok || !demographicsResponse.ok) {
+                throw new Error('Failed to load report data');
+            }
+
+            const barangays = await barangayResponse.json();
+            const demographics = await demographicsResponse.json();
+            reportRows = (Array.isArray(barangays) ? barangays : []).map(barangay => {
+                const counts = demographics?.[barangay.name] || {};
+                const categories = Object.fromEntries(METRIC_ORDER.map(metric => [
+                    metric.key,
+                    {
+                        male: toNumber(counts[`${metric.key}_male`]),
+                        female: toNumber(counts[`${metric.key}_female`]),
+                        total: toNumber(counts[metric.key])
+                    }
+                ]));
+
+                return {
+                    id: barangay.id,
+                    legendIndex: (Array.isArray(barangays) ? barangays : []).findIndex(item => item.id === barangay.id) + 1,
+                    name: barangay.name,
+                    totalYouth: toNumber(counts.total),
+                    maleTotal: toNumber(counts.male),
+                    femaleTotal: toNumber(counts.female),
+                    categories
+                };
+            });
+
+            renderCategoryOptions();
+            renderCategoryChips();
+            renderTable();
+            renderBarangayLegend(Array.isArray(barangays) ? barangays : []);
+        } catch (error) {
+            console.warn('Could not load reports data:', error);
+            if (tableShell) {
+                tableShell.innerHTML = '<div class="empty-report-state">Could not load report data right now.</div>';
+            }
+            const note = document.getElementById('report-summary-note');
+            if (note) note.textContent = 'Unable to load report data.';
+        }
+    }
+
+    function toggleSidebar() {
+        const menu = document.getElementById('side-menu');
+        const overlay = document.getElementById('side-overlay');
+        if (!menu) return;
+        const opening = !menu.classList.contains('open');
+        menu.classList.toggle('open', opening);
+        if (overlay) overlay.classList.toggle('show', opening);
+    }
+
+    function closeSidebar() {
+        document.getElementById('side-menu')?.classList.remove('open');
+        document.getElementById('side-overlay')?.classList.remove('show');
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeSidebar();
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderCategoryOptions();
+        renderCategoryChips();
+
+        const filter = document.getElementById('category-filter');
+        const search = document.getElementById('barangay-search-input');
+        if (filter) {
+            filter.addEventListener('change', (event) => {
+                selectedCategory = event.target.value;
+                renderCategoryChips();
+                renderTable();
+            });
+        }
+
+        if (search) {
+            search.addEventListener('input', (event) => {
+                searchTerm = event.target.value || '';
+                renderTable();
+            });
+        }
+
+        initReports();
+    });
+</script>
+
+</body>
+</html>

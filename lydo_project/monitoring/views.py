@@ -1,0 +1,1242 @@
+import json
+import datetime
+import io
+import math
+import struct
+import textwrap
+import unicodedata
+import zipfile
+import zlib
+from functools import lru_cache
+from pathlib import Path
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from django.contrib.auth.decorators import login_required
+from django.db.models import Count
+from .models import Youth, Barangay
+
+# Optional profanity filter (graceful fallback if package not installed)
+try:
+    from better_profanity import profanity
+    profanity.load_censor_words()
+    profanity.add_censor_words(['gago', 'puta', 'yawa', 'piste'])
+    _PROFANITY_AVAILABLE = True
+except ImportError:
+    _PROFANITY_AVAILABLE = False
+
+def _contains_profanity(text: str) -> bool:
+    if not _PROFANITY_AVAILABLE:
+        return False
+    return profanity.contains_profanity(text)
+
+
+# Public page views
+# PAGE VIEWS
+# Page access control
+
+@ensure_csrf_cookie
+def index(request):
+    """Dashboard page; redirect to login if not authenticated."""
+    if not request.user.is_authenticated:
+        return redirect('login_page')
+    return render(request, 'dashboard.html')
+
+
+def login_page(request):
+    """Login page; redirect to dashboard if already authenticated."""
+    if request.user.is_authenticated:
+        return redirect('index')
+    return render(request, 'login.html')
+
+
+def reports_page(request, bid=None):
+    """Reports page."""
+    if not request.user.is_authenticated:
+        return redirect('login_page')
+    return render(request, 'reports.html', {'barangay_id': bid})
+
+
+def heatmap_page(request):
+    """Barangay by age heatmap page."""
+    if not request.user.is_authenticated:
+        return redirect('login_page')
+    return render(request, 'heatmap.html')
+
+
+def _choice_labels(field_name):
+    """Return the human-readable choice labels defined on the Youth model."""
+    return [label for _value, label in Youth._meta.get_field(field_name).choices]
+
+
+def _safe_export_name(value):
+    cleaned = ''.join(ch if ch.isalnum() or ch in (' ', '-', '_') else '_' for ch in value)
+    cleaned = '_'.join(cleaned.split())
+    return cleaned or 'barangay'
+
+
+def _build_blank_form_context(barangay_name):
+    return {
+        'barangay_name': barangay_name,
+        'municipality_name': 'Manolo Fortich',
+        'province_name': 'Bukidnon',
+        'generated_on': datetime.date.today().strftime('%B %d, %Y'),
+        'civil_status_options': _choice_labels('civil_status'),
+        'education_level_options': _choice_labels('education_level'),
+        'tribe_options': _choice_labels('tribe_name'),
+        'muslim_group_options': _choice_labels('muslim_group'),
+        'osy_program_options': _choice_labels('osy_program_type'),
+        'specific_needs_options': _choice_labels('specific_needs_condition'),
+        'kk_no_reason_options': _choice_labels('kk_assembly_no_reason'),
+    }
+
+
+def _pdf_safe_text(value):
+    value = unicodedata.normalize('NFKD', str(value or ''))
+    value = value.encode('ascii', 'ignore').decode('ascii')
+    value = value.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+    return value.replace('\r', '').replace('\n', ' ')
+
+
+def _wrap_pdf_text(text, max_width, font_size):
+    text = _pdf_safe_text(text)
+    if not text:
+        return []
+    approx_chars = max(12, int(max_width / max(font_size * 0.52, 1)))
+    return textwrap.wrap(text, width=approx_chars, break_long_words=False, break_on_hyphens=False) or [text]
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_LYDO_LOGO_PATH = _REPO_ROOT / 'frontend' / 'images' / 'logo.png'
+_PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
+def _png_paeth(a, b, c):
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    if pb <= pc:
+        return b
+    return c
+
+
+@lru_cache(maxsize=4)
+def _load_png_for_pdf(path_value):
+    data = Path(path_value).read_bytes()
+    if not data.startswith(_PNG_SIGNATURE):
+        raise ValueError('Unsupported image format; expected PNG.')
+
+    width = height = None
+    bit_depth = color_type = compression = filter_method = interlace = None
+    idat_chunks = bytearray()
+    cursor = len(_PNG_SIGNATURE)
+
+    while cursor + 8 <= len(data):
+        chunk_length = struct.unpack('>I', data[cursor:cursor + 4])[0]
+        cursor += 4
+        chunk_type = data[cursor:cursor + 4]
+        cursor += 4
+        chunk_data = data[cursor:cursor + chunk_length]
+        cursor += chunk_length + 4  # chunk bytes + CRC
+
+        if chunk_type == b'IHDR':
+            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
+                '>IIBBBBB',
+                chunk_data,
+            )
+        elif chunk_type == b'IDAT':
+            idat_chunks.extend(chunk_data)
+        elif chunk_type == b'IEND':
+            break
+
+    if not width or not height:
+        raise ValueError('PNG image is missing IHDR metadata.')
+    if bit_depth != 8:
+        raise ValueError('Only 8-bit PNG images are supported.')
+    if compression != 0 or filter_method != 0 or interlace != 0:
+        raise ValueError('Only non-interlaced PNG images are supported.')
+
+    channel_map = {0: 1, 2: 3, 6: 4}
+    if color_type not in channel_map:
+        raise ValueError(f'Unsupported PNG color type: {color_type}')
+
+    channels = channel_map[color_type]
+    bytes_per_pixel = channels
+    stride = width * channels
+    decoded = zlib.decompress(bytes(idat_chunks))
+    expected_min_size = height * (stride + 1)
+    if len(decoded) < expected_min_size:
+        raise ValueError('PNG image data is incomplete.')
+
+    raw_pixels = bytearray(height * stride)
+    previous_row = bytearray(stride)
+    src = 0
+    dest = 0
+
+    for _ in range(height):
+        filter_type = decoded[src]
+        src += 1
+        row = bytearray(decoded[src:src + stride])
+        src += stride
+
+        if filter_type == 1:
+            for index in range(bytes_per_pixel, stride):
+                row[index] = (row[index] + row[index - bytes_per_pixel]) & 0xFF
+        elif filter_type == 2:
+            for index in range(stride):
+                row[index] = (row[index] + previous_row[index]) & 0xFF
+        elif filter_type == 3:
+            for index in range(stride):
+                left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                up = previous_row[index]
+                row[index] = (row[index] + ((left + up) // 2)) & 0xFF
+        elif filter_type == 4:
+            for index in range(stride):
+                left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                up = previous_row[index]
+                up_left = previous_row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                row[index] = (row[index] + _png_paeth(left, up, up_left)) & 0xFF
+        elif filter_type != 0:
+            raise ValueError(f'Unsupported PNG filter type: {filter_type}')
+
+        raw_pixels[dest:dest + stride] = row
+        previous_row = row
+        dest += stride
+
+    if color_type == 6:
+        # Flatten transparency onto white so the logo renders reliably in PDF viewers.
+        rgb_bytes = bytearray(width * height * 3)
+        rgb_index = 0
+        for pixel_index in range(0, len(raw_pixels), 4):
+            alpha = raw_pixels[pixel_index + 3]
+            if alpha == 255:
+                red = raw_pixels[pixel_index]
+                green = raw_pixels[pixel_index + 1]
+                blue = raw_pixels[pixel_index + 2]
+            elif alpha == 0:
+                red = green = blue = 255
+            else:
+                red = ((raw_pixels[pixel_index] * alpha) + (255 * (255 - alpha))) // 255
+                green = ((raw_pixels[pixel_index + 1] * alpha) + (255 * (255 - alpha))) // 255
+                blue = ((raw_pixels[pixel_index + 2] * alpha) + (255 * (255 - alpha))) // 255
+            rgb_bytes[rgb_index] = red
+            rgb_bytes[rgb_index + 1] = green
+            rgb_bytes[rgb_index + 2] = blue
+            rgb_index += 3
+        return {
+            'width': width,
+            'height': height,
+            'color_space': 'DeviceRGB',
+            'data': zlib.compress(bytes(rgb_bytes)),
+            'alpha': None,
+        }
+
+    color_space = 'DeviceGray' if color_type == 0 else 'DeviceRGB'
+    return {
+        'width': width,
+        'height': height,
+        'color_space': color_space,
+        'data': zlib.compress(bytes(raw_pixels)),
+        'alpha': None,
+    }
+
+
+class _SimplePdf:
+    """Small PDF writer using built-in Helvetica fonts only."""
+
+    def __init__(self, page_width=595.28, page_height=841.89):
+        self.page_width = float(page_width)
+        self.page_height = float(page_height)
+        self.pages = []
+        self._page_xobjects = []
+        self._images = {}
+        self._commands = None
+        self._current_xobjects = None
+
+    def add_page(self):
+        if self._commands is not None:
+            self.pages.append('\n'.join(self._commands))
+            self._page_xobjects.append(set(self._current_xobjects or set()))
+        self._commands = []
+        self._current_xobjects = set()
+
+    def _append(self, command):
+        if self._commands is None:
+            self.add_page()
+        self._commands.append(command)
+
+    def text(self, x, y, text, size=11, bold=False, color=(0, 0, 0)):
+        font = 'F2' if bold else 'F1'
+        r, g, b = color
+        self._append(f"{r:.3f} {g:.3f} {b:.3f} rg")
+        self._append(
+            f"BT /{font} {size:.2f} Tf 1 0 0 1 {x:.2f} {y:.2f} Tm ({_pdf_safe_text(text)}) Tj ET"
+        )
+
+    def line(self, x1, y1, x2, y2, width=1, color=(0, 0, 0)):
+        r, g, b = color
+        self._append(f"{r:.3f} {g:.3f} {b:.3f} RG")
+        self._append(f"{width:.2f} w")
+        self._append(f"{x1:.2f} {y1:.2f} m {x2:.2f} {y2:.2f} l S")
+
+    def rect(self, x, y, width, height, stroke=(0, 0, 0), fill=None, line_width=1):
+        sr, sg, sb = stroke
+        self._append(f"{sr:.3f} {sg:.3f} {sb:.3f} RG")
+        self._append(f"{line_width:.2f} w")
+        if fill is not None:
+            fr, fg, fb = fill
+            self._append(f"{fr:.3f} {fg:.3f} {fb:.3f} rg")
+            self._append(f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re B")
+        else:
+            self._append(f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re S")
+
+    def draw_png(self, name, png_path, x, top, width, height):
+        if name not in self._images:
+            self._images[name] = _load_png_for_pdf(str(png_path))
+        if self._commands is None:
+            self.add_page()
+        self._current_xobjects.add(name)
+        y = self.page_height - top - height
+        self._append('q')
+        self._append(f"{width:.2f} 0 0 {height:.2f} {x:.2f} {y:.2f} cm")
+        self._append(f"/{name} Do")
+        self._append('Q')
+
+    def build(self):
+        if self._commands is not None:
+            self.pages.append('\n'.join(self._commands))
+            self._page_xobjects.append(set(self._current_xobjects or set()))
+            self._commands = None
+            self._current_xobjects = None
+
+        font_regular_id = 3
+        font_bold_id = 4
+        next_object_id = 5
+        image_ids = {}
+        mask_ids = {}
+        for image_name, image in self._images.items():
+            if image.get('alpha') is not None:
+                mask_ids[image_name] = next_object_id
+                next_object_id += 1
+            image_ids[image_name] = next_object_id
+            next_object_id += 1
+
+        page_ids = []
+        content_ids = []
+        for page_index in range(len(self.pages)):
+            content_ids.append(next_object_id)
+            next_object_id += 1
+            page_ids.append(next_object_id)
+            next_object_id += 1
+
+        object_count = next_object_id - 1
+
+        objects = [None] * (object_count + 1)
+        objects[1] = "<< /Type /Catalog /Pages 2 0 R >>"
+        kids = ' '.join(f"{page_id} 0 R" for page_id in page_ids)
+        objects[2] = f"<< /Type /Pages /Count {len(page_ids)} /Kids [{kids}] >>"
+        objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        objects[4] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
+
+        for image_name, image in self._images.items():
+            alpha_bytes = image.get('alpha')
+            if alpha_bytes is not None:
+                mask_id = mask_ids[image_name]
+                mask_header = (
+                    f"<< /Type /XObject /Subtype /Image /Width {image['width']} /Height {image['height']} "
+                    f"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode "
+                    f"/Length {len(alpha_bytes)} >>\nstream\n"
+                ).encode('latin-1')
+                objects[mask_id] = mask_header + alpha_bytes + b"\nendstream"
+
+            image_bytes = image['data']
+            smask_ref = f" /SMask {mask_ids[image_name]} 0 R" if image_name in mask_ids else ""
+            image_header = (
+                f"<< /Type /XObject /Subtype /Image /Width {image['width']} /Height {image['height']} "
+                f"/ColorSpace /{image['color_space']} /BitsPerComponent 8 /Filter /FlateDecode"
+                f"{smask_ref} /Length {len(image_bytes)} >>\nstream\n"
+            ).encode('latin-1')
+            objects[image_ids[image_name]] = image_header + image_bytes + b"\nendstream"
+
+        for page_index, content in enumerate(self.pages):
+            content_bytes = content.encode('latin-1', 'replace')
+            content_id = content_ids[page_index]
+            page_id = page_ids[page_index]
+            objects[content_id] = f"<< /Length {len(content_bytes)} >>\nstream\n{content}\nendstream"
+            xobjects = self._page_xobjects[page_index] if page_index < len(self._page_xobjects) else set()
+            xobject_resource = ""
+            if xobjects:
+                xobject_refs = ' '.join(f"/{name} {image_ids[name]} 0 R" for name in sorted(xobjects))
+                xobject_resource = f" /XObject << {xobject_refs} >>"
+            objects[page_id] = (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {self.page_width:.2f} {self.page_height:.2f}] "
+                f"/Resources << /Font << /F1 {font_regular_id} 0 R /F2 {font_bold_id} 0 R >>{xobject_resource} >> "
+                f"/Contents {content_id} 0 R >>"
+            )
+
+        output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = [0] * (object_count + 1)
+        for obj_id in range(1, object_count + 1):
+            offsets[obj_id] = len(output)
+            output.extend(f"{obj_id} 0 obj\n".encode("latin-1"))
+            obj_value = objects[obj_id]
+            if isinstance(obj_value, bytes):
+                output.extend(obj_value)
+            else:
+                output.extend(obj_value.encode("latin-1"))
+            output.extend(b"\nendobj\n")
+
+        xref_offset = len(output)
+        output.extend(f"xref\n0 {object_count + 1}\n".encode("latin-1"))
+        output.extend(b"0000000000 65535 f \n")
+        for obj_id in range(1, object_count + 1):
+            output.extend(f"{offsets[obj_id]:010d} 00000 n \n".encode("latin-1"))
+        output.extend(
+            (
+                f"trailer\n<< /Size {object_count + 1} /Root 1 0 R >>\n"
+                f"startxref\n{xref_offset}\n%%EOF"
+            ).encode("latin-1")
+        )
+        return bytes(output)
+
+
+def _draw_wrapped_text(pdf, x, top, text, max_width, size=10, bold=False, color=(0, 0, 0), leading=None):
+    leading = leading or (size + 3)
+    lines = _wrap_pdf_text(text, max_width, size)
+    for index, line in enumerate(lines):
+        pdf.text(x, pdf.page_height - top - (index * leading) - size, line, size=size, bold=bold, color=color)
+    return top + (len(lines) * leading)
+
+
+def _draw_line_field(pdf, x, top, width, label, line_y_offset=28):
+    pdf.text(x, pdf.page_height - top - 9, label, size=8.5, bold=True, color=(0.26, 0.34, 0.47))
+    baseline_y = pdf.page_height - top - line_y_offset
+    pdf.line(x, baseline_y, x + width, baseline_y, width=0.8, color=(0.35, 0.42, 0.55))
+    return top + line_y_offset + 12
+
+
+def _draw_checkbox_item(pdf, x, top, label, max_width, size=9.5):
+    box_size = 9
+    rect_y = pdf.page_height - top - box_size - 1
+    pdf.rect(x, rect_y, box_size, box_size, stroke=(0.32, 0.40, 0.52), line_width=0.8)
+    text_top = top - 1
+    used_top = _draw_wrapped_text(pdf, x + box_size + 6, text_top, label, max_width - box_size - 6, size=size)
+    return max(box_size + 8, used_top - top + 2)
+
+
+def _draw_checkbox_list(pdf, x, top, width, title, options, columns=1, size=9.5, row_gap=6):
+    top = _draw_wrapped_text(pdf, x, top, title, width, size=9.5, bold=True, color=(0.10, 0.22, 0.44))
+    top += 6
+    columns = max(1, columns)
+    col_gap = 16
+    col_width = (width - ((columns - 1) * col_gap)) / columns
+    rows = int(math.ceil(len(options) / columns)) if options else 0
+    for row in range(rows):
+        heights = []
+        for col in range(columns):
+            idx = (row * columns) + col
+            if idx >= len(options):
+                continue
+            item_x = x + (col * (col_width + col_gap))
+            item_height = _draw_checkbox_item(pdf, item_x, top, options[idx], col_width, size=size)
+            heights.append(item_height)
+        top += (max(heights) if heights else 0) + row_gap
+    return top
+
+
+def _draw_page_header(pdf, barangay_name, page_number, total_pages, include_logo=False):
+    left = 36
+    right = pdf.page_width - 36
+    top = 28
+    title_x = left
+    if include_logo and _LYDO_LOGO_PATH.exists():
+        try:
+            pdf.draw_png('LydoLogo', _LYDO_LOGO_PATH, left, 10, 38, 38)
+            title_x += 48
+        except (OSError, ValueError):
+            title_x = left
+    pdf.text(title_x, pdf.page_height - top - 18, "LYDO Youth Profile Form", size=18, bold=True, color=(0.10, 0.22, 0.44))
+    pdf.text(
+        right - 145,
+        pdf.page_height - top - 10,
+        f"Barangay: {barangay_name}",
+        size=9,
+        bold=True,
+        color=(0.28, 0.35, 0.46),
+    )
+    pdf.line(left, pdf.page_height - 56, right, pdf.page_height - 56, width=1.1, color=(0.10, 0.22, 0.44))
+    pdf.text(left, 20, "Copyright (c) 2026 LYDO Office. All rights reserved.", size=7.5, color=(0.45, 0.52, 0.62))
+    pdf.text(right - 56, 20, f"Page {page_number} of {total_pages}", size=8.5, color=(0.45, 0.52, 0.62))
+
+
+def _draw_section_banner(pdf, top, title):
+    x = 36
+    width = pdf.page_width - 72
+    height = 20
+    pdf.rect(x, pdf.page_height - top - height, width, height, stroke=(0.10, 0.22, 0.44), fill=(0.10, 0.22, 0.44), line_width=0.8)
+    pdf.text(x + 8, pdf.page_height - top - 14, title, size=10.5, bold=True, color=(1, 1, 1))
+    return top + height + 12
+
+
+def _build_blank_form_pdf(barangay_name, include_logo=False):
+    context = _build_blank_form_context(barangay_name)
+    pdf = _SimplePdf()
+    total_pages = 4
+    content_width = pdf.page_width - 72
+    half_gap = 18
+    half_width = (content_width - half_gap) / 2
+    left_x = 36
+    right_x = left_x + half_width + half_gap
+
+    # Page 1: Personal Information
+    pdf.add_page()
+    _draw_page_header(pdf, context['barangay_name'], 1, total_pages, include_logo=include_logo)
+    top = 68
+    top = _draw_section_banner(pdf, top, "PERSONAL INFORMATION")
+    row_top = top
+    family_width = 200
+    given_width = 200
+    middle_width = content_width - family_width - given_width - 24
+    _draw_line_field(pdf, left_x, row_top, family_width, "Family Name")
+    _draw_line_field(pdf, left_x + family_width + 12, row_top, given_width, "Given Name")
+    top = _draw_line_field(pdf, left_x + family_width + given_width + 24, row_top, middle_width, "Middle Initial")
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, 150, "Birthdate")
+    _draw_line_field(pdf, left_x + 170, row_top, 70, "Age")
+    top = _draw_checkbox_list(pdf, left_x + 265, row_top, 130, "Sex", ["Male", "Female"], columns=2, size=9)
+    top = max(top, row_top + 40)
+    top += 6
+    top = _draw_checkbox_list(pdf, left_x, top, content_width, "Civil Status", context['civil_status_options'], columns=3, size=9)
+    top += 2
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, half_width, "Religion")
+    top = _draw_line_field(pdf, right_x, row_top, half_width, "Purok")
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, half_width, "Barangay")
+    pdf.text(left_x + 2, pdf.page_height - row_top - 23, context['barangay_name'], size=9.5, bold=True, color=(0.14, 0.19, 0.27))
+    _draw_line_field(pdf, right_x, row_top, half_width, "Municipality")
+    pdf.text(right_x + 2, pdf.page_height - row_top - 23, context['municipality_name'], size=9.5, bold=True, color=(0.14, 0.19, 0.27))
+    top = row_top + 34
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, half_width, "Province")
+    pdf.text(left_x + 2, pdf.page_height - row_top - 23, context['province_name'], size=9.5, bold=True, color=(0.14, 0.19, 0.27))
+    _draw_line_field(pdf, right_x, row_top, half_width, "Email Address")
+    top = row_top + 34
+    top = _draw_line_field(pdf, left_x, top, half_width, "Mobile Number")
+
+    # Page 2: Groups and Needs
+    pdf.add_page()
+    _draw_page_header(pdf, context['barangay_name'], 2, total_pages, include_logo=include_logo)
+    top = 68
+    top = _draw_section_banner(pdf, top, "GROUPS AND NEEDS")
+    top = _draw_checkbox_list(
+        pdf,
+        left_x,
+        top,
+        content_width,
+        "Youth Classification",
+        [
+            "In School Youth",
+            "Out of School Youth",
+            "Working Youth",
+            "Unemployed Youth",
+            "Indigenous People Youth",
+            "Youth with Disability",
+        ],
+        columns=2,
+    )
+    top += 4
+    row_top = top
+    left_bottom = _draw_checkbox_list(
+        pdf,
+        left_x,
+        row_top,
+        half_width,
+        "Out of School Youth Details",
+        [
+            "Willing to enroll",
+            "Not willing to enroll",
+            *context['osy_program_options'],
+        ],
+        columns=1,
+        size=9,
+    )
+    left_bottom = _draw_line_field(pdf, left_x, left_bottom + 2, half_width, "Reason if not enrolling")
+    right_bottom = _draw_line_field(pdf, right_x, row_top, half_width, "Type of Disability")
+    right_bottom = _draw_checkbox_list(
+        pdf,
+        right_x,
+        right_bottom + 4,
+        half_width,
+        "Specific Needs",
+        ["Mark if applicable", *context['specific_needs_options']],
+        columns=2,
+        size=7.6,
+        row_gap=3,
+    )
+    right_bottom = _draw_line_field(
+        pdf,
+        right_x,
+        right_bottom + 2,
+        half_width,
+        "Others (if not above, specify youth needs)",
+    )
+    cultural_top = max(left_bottom, right_bottom) + 10
+    top = _draw_checkbox_list(
+        pdf,
+        left_x,
+        cultural_top,
+        half_width,
+        "7 Tribes / Indigenous Group",
+        context['tribe_options'],
+        columns=1,
+        size=9,
+    )
+    _draw_line_field(pdf, left_x, top + 2, half_width, "Selected Tribe")
+    right_top = _draw_checkbox_list(
+        pdf,
+        right_x,
+        cultural_top,
+        half_width,
+        "Muslim Group",
+        ["Mark if Muslim", *context['muslim_group_options']],
+        columns=1,
+        size=9,
+    )
+    _draw_line_field(pdf, right_x, right_top + 2, half_width, "Selected Group")
+
+    # Page 3: Education and Work
+    pdf.add_page()
+    _draw_page_header(pdf, context['barangay_name'], 3, total_pages, include_logo=include_logo)
+    top = 68
+    top = _draw_section_banner(pdf, top, "EDUCATION AND WORK")
+    top = _draw_checkbox_list(
+        pdf,
+        left_x,
+        top,
+        content_width,
+        "Highest Education",
+        context['education_level_options'],
+        columns=2,
+        size=9.2,
+    )
+    top += 4
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, half_width, "Course / Degree")
+    top = _draw_line_field(pdf, right_x, row_top, half_width, "School / University")
+    row_top = top
+    _draw_line_field(pdf, left_x, row_top, half_width, "Work Status")
+    scholarship_top = _draw_checkbox_list(
+        pdf,
+        right_x,
+        row_top,
+        half_width,
+        "Scholarship",
+        ["Scholarship Beneficiary"],
+        columns=1,
+        size=9,
+    )
+    top = max(row_top + 34, scholarship_top)
+    top = _draw_line_field(pdf, right_x, top + 2, half_width, "Scholarship Program")
+
+    # Page 4: Civic and Other
+    pdf.add_page()
+    _draw_page_header(pdf, context['barangay_name'], 4, total_pages, include_logo=include_logo)
+    top = 68
+    top = _draw_section_banner(pdf, top, "CIVIC AND OTHER")
+    row_top = top
+    left_bottom = _draw_checkbox_list(
+        pdf,
+        left_x,
+        row_top,
+        half_width,
+        "Voter Status",
+        [
+            "SK Voter",
+            "National Voter",
+            "Voted in Last SK Election",
+        ],
+        columns=1,
+        size=9.2,
+    )
+    right_bottom = _draw_checkbox_list(
+        pdf,
+        right_x,
+        row_top,
+        half_width,
+        "4Ps and Family",
+        ["4Ps Beneficiary"],
+        columns=1,
+        size=9.2,
+    )
+    right_bottom = _draw_line_field(pdf, right_x, right_bottom + 4, half_width, "Number of Children")
+    top = max(left_bottom, right_bottom) + 10
+    row_top = top
+    left_bottom = _draw_checkbox_list(
+        pdf,
+        left_x,
+        row_top,
+        half_width,
+        "KK Assembly Attendance",
+        ["Attended KK Assembly", "Did not attend"],
+        columns=1,
+        size=9.2,
+    )
+    left_bottom = _draw_line_field(pdf, left_x, left_bottom + 4, half_width, "If yes, how many times")
+    right_bottom = _draw_checkbox_list(
+        pdf,
+        right_x,
+        row_top,
+        half_width,
+        "If no, reason",
+        context['kk_no_reason_options'],
+        columns=1,
+        size=9.2,
+    )
+    right_bottom = _draw_line_field(pdf, right_x, right_bottom + 4, half_width, "Other reason / notes")
+    top = max(left_bottom, right_bottom) + 28
+    pdf.line(left_x, pdf.page_height - top, left_x + half_width - 10, pdf.page_height - top, width=0.8, color=(0.35, 0.42, 0.55))
+    pdf.line(right_x, pdf.page_height - top, right_x + half_width - 10, pdf.page_height - top, width=0.8, color=(0.35, 0.42, 0.55))
+    pdf.text(left_x + 50, pdf.page_height - top - 16, "Signature of Youth Respondent", size=9, color=(0.33, 0.40, 0.50))
+    pdf.text(right_x + 30, pdf.page_height - top - 16, "Signature of Encoder/ LYDO Officer", size=9, color=(0.33, 0.40, 0.50))
+
+    return pdf.build()
+
+
+@login_required(login_url='/login/')
+def download_barangay_blank_form(request, bid):
+    """Download one blank youth intake form PDF for the selected barangay."""
+    _seed_barangays()
+    barangay = get_object_or_404(Barangay, id=bid)
+    pdf_bytes = _build_blank_form_pdf(barangay.name, include_logo=True)
+    filename = f"Youth_Profile_Form_{_safe_export_name(barangay.name)}.pdf"
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required(login_url='/login/')
+def download_blank_form_pack(request):
+    """Download a ZIP pack with one printable blank youth form PDF per barangay."""
+    _seed_barangays()
+    barangays = list(Barangay.objects.all().order_by('name'))
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for index, barangay in enumerate(barangays, start=1):
+            safe_name = _safe_export_name(barangay.name)
+            folder_name = f"{index:02d}_{safe_name}"
+            file_name = f"Youth_Profile_Form_{safe_name}.pdf"
+            zip_path = f"{folder_name}/{file_name}"
+            zip_file.writestr(zip_path, _build_blank_form_pdf(barangay.name, include_logo=True))
+
+    zip_buffer.seek(0)
+    response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = 'attachment; filename="barangay_youth_profile_forms.zip"'
+    return response
+
+
+# Authentication views
+# AUTH API ENDPOINTS
+# Registration and login handlers
+
+@csrf_exempt
+def register_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    email    = data.get('email', '').strip()
+
+    if not username or not password:
+        return JsonResponse({'error': 'Username and password are required'}, status=400)
+
+    if User.objects.filter(username=username).exists():
+        return JsonResponse({'error': 'Username already exists'}, status=400)
+
+    user = User.objects.create_user(username=username, password=password, email=email)
+    login(request, user)
+    return JsonResponse({'message': 'Registered and logged in successfully',
+                         'username': user.username})
+
+
+@csrf_exempt
+def login_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return JsonResponse({'error': 'Username and password are required'}, status=400)
+
+    user = authenticate(request, username=username, password=password)
+    if user is not None:
+        login(request, user)
+        return JsonResponse({'message': 'Login successful', 'username': user.username})
+
+    return JsonResponse({'error': 'Invalid credentials'}, status=401)
+
+
+def logout_view(request):
+    logout(request)
+    return JsonResponse({'message': 'Logged out successfully'})
+
+
+def user_info_view(request):
+    """Return current authentication state."""
+    if request.user.is_authenticated:
+        return JsonResponse({'is_authenticated': True,
+                             'username': request.user.username})
+    return JsonResponse({'is_authenticated': False}, status=401)
+
+
+# Barangay seed data and summary endpoints
+# BARANGAY API ENDPOINTS
+# Default barangay list used for initialization
+
+_DEFAULT_BARANGAYS = [
+    "Agusan Canyon", "Alae", "Dahilayan", "Dalirig", "Damilag", "Diclum",
+    "Guilang-guilang", "Kalugmanan", "Lindaban", "Lingion", "Lunocan", "Maluko",
+    "Mambatangan", "Mampayag", "Mantibugao", "Minsuro", "San Miguel", "Sankanan",
+    "Santiago", "Santo Niño", "Tankulan", "Ticala",
+]
+
+
+def _normalize_barangay_name(name):
+    value = unicodedata.normalize('NFKD', str(name or ''))
+    value = ''.join(ch for ch in value if not unicodedata.combining(ch))
+    return ' '.join(value.lower().split())
+
+
+def _seed_barangays():
+    """Seed the 22 default barangays if the table is empty."""
+    if not Barangay.objects.exists():
+        Barangay.objects.bulk_create(
+            [Barangay(name=n) for n in _DEFAULT_BARANGAYS],
+            ignore_conflicts=True,
+        )
+
+
+def _ordered_barangays():
+    """Return barangays in the official legend order."""
+    _seed_barangays()
+    by_name = {_normalize_barangay_name(barangay.name): barangay for barangay in Barangay.objects.all()}
+    default_names = [_normalize_barangay_name(name) for name in _DEFAULT_BARANGAYS]
+    ordered = [by_name[name] for name in default_names if name in by_name]
+    remaining = sorted(
+        [
+            barangay for normalized_name, barangay in by_name.items()
+            if normalized_name not in default_names
+        ],
+        key=lambda barangay: barangay.name,
+    )
+    return ordered + remaining
+
+
+def barangays_api(request):
+    """Return all barangays as a JSON array: [{id, name}, ...]"""
+    data = [{'id': barangay.id, 'name': barangay.name} for barangay in _ordered_barangays()]
+    return JsonResponse(data, safe=False)
+
+
+def barangay_summary(request, bid):
+    """Return aggregated demographic summary for a single barangay."""
+    barangay = get_object_or_404(Barangay, id=bid)
+    youths   = Youth.objects.filter(barangay=barangay)
+
+    age_counts   = {}
+    sex_by_age   = {}
+    civil_by_age = {}
+    edu_by_age   = {}
+
+    for y in youths:
+        age = str(y.age)
+        age_counts[age] = age_counts.get(age, 0) + 1
+
+        for bucket, key in [
+            (sex_by_age,   y.sex             or 'Unknown'),
+            (civil_by_age, y.civil_status    or 'Unknown'),
+            (edu_by_age,   y.education_level or 'Unknown'),
+        ]:
+            bucket.setdefault(key, {})
+            bucket[key][age] = bucket[key].get(age, 0) + 1
+
+    sex_counts = {
+        r['sex'] or 'Unknown': r['count']
+        for r in youths.values('sex').annotate(count=Count('id'))
+    }
+    civil_counts = {
+        r['civil_status'] or 'Unknown': r['count']
+        for r in youths.values('civil_status').annotate(count=Count('id'))
+    }
+    edu_counts = {
+        r['education_level'] or 'Unknown': r['count']
+        for r in youths.values('education_level').annotate(count=Count('id'))
+    }
+
+    return JsonResponse({
+        'barangay_id':       barangay.id,
+        'barangay_name':     barangay.name,
+        'total':             youths.count(),
+        'sex':               sex_counts,
+        'sex_by_age':        sex_by_age,
+        'ages':              age_counts,
+        'civil_status':      civil_counts,
+        'civil_by_age':      civil_by_age,
+        'education':         edu_counts,
+        'education_by_age':  edu_by_age,
+        'pwd':               youths.filter(is_pwd=True).count(),
+        'pwd_male':          youths.filter(is_pwd=True, sex='Male').count(),
+        'pwd_female':        youths.filter(is_pwd=True, sex='Female').count(),
+        'fourps':            youths.filter(is_4ps=True).count(),
+        'fourps_male':       youths.filter(is_4ps=True, sex='Male').count(),
+        'fourps_female':     youths.filter(is_4ps=True, sex='Female').count(),
+        'working':           youths.filter(is_working_youth=True).count(),
+        'working_male':      youths.filter(is_working_youth=True, sex='Male').count(),
+        'working_female':    youths.filter(is_working_youth=True, sex='Female').count(),
+        'unemployed':        youths.filter(is_unemployed=True).count(),
+        'unemployed_male':   youths.filter(is_unemployed=True, sex='Male').count(),
+        'unemployed_female': youths.filter(is_unemployed=True, sex='Female').count(),
+        'ip':                youths.filter(is_ip=True).count(),
+        'ip_male':           youths.filter(is_ip=True, sex='Male').count(),
+        'ip_female':         youths.filter(is_ip=True, sex='Female').count(),
+        'osy':               youths.filter(is_osy=True).count(),
+        'osy_male':          youths.filter(is_osy=True, sex='Male').count(),
+        'osy_female':        youths.filter(is_osy=True, sex='Female').count(),
+    })
+
+
+def demographics_api(request):
+    """Per-barangay demographic breakdown used by the interactive reports table."""
+    _seed_barangays()
+
+    metric_keys = ('isy', 'osy', 'yd', 'iy', 'ip', 'wk', 'uy')
+    barangays = list(Barangay.objects.all().order_by('name'))
+    demo_data = {
+        b.name: {
+            'total': 0,
+            'male': 0,
+            'female': 0,
+            **{key: 0 for key in metric_keys},
+            **{f'{key}_male': 0 for key in metric_keys},
+            **{f'{key}_female': 0 for key in metric_keys},
+        }
+        for b in barangays
+    }
+
+    for y in (Youth.objects
+              .select_related('barangay')
+              .values(
+                  'barangay__name', 'sex', 'is_in_school', 'is_osy',
+                  'is_working_youth', 'is_unemployed', 'is_pwd', 'is_4ps', 'is_ip'
+              )):
+        name = y['barangay__name']
+        if name not in demo_data:
+            continue
+
+        d = demo_data[name]
+        sex = (y['sex'] or '').strip().lower()
+
+        d['total'] += 1
+        if sex == 'male':
+            d['male'] += 1
+        elif sex == 'female':
+            d['female'] += 1
+
+        matches = []
+        if y['is_in_school']:
+            matches.append('isy')
+        if y['is_osy']:
+            matches.append('osy')
+        if y['is_working_youth']:
+            matches.append('wk')
+        if y['is_unemployed']:
+            matches.append('uy')
+        if y['is_pwd']:
+            matches.append('iy')
+        if y['is_ip']:
+            matches.append('ip')
+        if y['is_4ps']:
+            matches.append('yd')
+
+        for key in matches:
+            d[key] += 1
+            if sex == 'male':
+                d[f'{key}_male'] += 1
+            elif sex == 'female':
+                d[f'{key}_female'] += 1
+
+    return JsonResponse(demo_data)
+
+
+def _build_barangay_age_heatmap_rows(youths, barangays, age_columns):
+    today = datetime.date.today()
+
+    matrix = {
+        b.name: {age: 0 for age in age_columns}
+        for b in barangays
+    }
+
+    max_count = 0
+
+    for y in youths:
+        birthdate = y['birthdate']
+        if not birthdate:
+            continue
+
+        age = today.year - birthdate.year - (
+            (today.month, today.day) < (birthdate.month, birthdate.day)
+        )
+        age_key = str(age)
+        barangay_name = y['barangay__name']
+
+        if barangay_name not in matrix or age_key not in matrix[barangay_name]:
+            continue
+
+        matrix[barangay_name][age_key] += 1
+        if matrix[barangay_name][age_key] > max_count:
+            max_count = matrix[barangay_name][age_key]
+
+    rows = []
+    for b in barangays:
+        counts = matrix[b.name]
+        total = sum(counts.values())
+        peak_age = max(age_columns, key=lambda age: counts[age]) if total else None
+        rows.append({
+            'barangay': b.name,
+            'counts': counts,
+            'total': total,
+            'peak_age': peak_age,
+            'peak_count': counts[peak_age] if peak_age else 0,
+        })
+
+    return rows, max_count
+
+
+def heatmap_api(request):
+    """Barangay by age heatmap data for key youth categories."""
+    age_columns = [str(age) for age in range(15, 31)]
+    barangays = _ordered_barangays()
+
+    metric_queries = {
+        'unemployed': Youth.objects.filter(is_unemployed=True, birthdate__isnull=False),
+        'osy': Youth.objects.filter(is_osy=True, birthdate__isnull=False),
+        'pwd': Youth.objects.filter(is_pwd=True, birthdate__isnull=False),
+    }
+
+    metrics = {}
+    for metric_key, queryset in metric_queries.items():
+        youths = queryset.values('barangay__name', 'birthdate')
+        rows, max_count = _build_barangay_age_heatmap_rows(youths, barangays, age_columns)
+        metrics[metric_key] = {
+            'rows': rows,
+            'max_count': max_count,
+        }
+
+    return JsonResponse({
+        'ages': age_columns,
+        'default_metric': 'unemployed',
+        'metric_order': ['unemployed', 'osy', 'pwd'],
+        'metrics': metrics,
+    })
+
+
+def unemployed_heatmap_api(request):
+    """Backward-compatible alias for the heatmap API."""
+    return heatmap_api(request)
+
+
+# Youth analytics APIs
+# YOUTH CRUD API
+# Youth profile API endpoints
+
+@csrf_exempt
+def youth_api(request):
+    """
+    GET: public list of all youth profiles
+    POST: create a new profile (auth required)
+    PUT: update an existing profile (auth required)
+    DELETE: remove a profile (auth required)
+    """
+
+    # GET: list youth profiles
+    if request.method == 'GET':
+        youths = Youth.objects.select_related('barangay').all()
+        data = []
+        for y in youths:
+            data.append({
+                'id':              y.id,
+                'name':            y.name,
+                'age':             y.age,
+                'sex':             y.sex,
+                'barangay_name':   y.barangay.name,
+                'barangay_id':     y.barangay.id,
+                'education_level': y.education_level,
+                'full_data': {
+                    'birthdate':                str(y.birthdate) if y.birthdate else '',
+                    'civil_status':             y.civil_status,
+                    'religion':                 y.religion,
+                    'purok':                    y.purok,
+                    'barangay_id':              y.barangay.id,
+                    'email':                    y.email,
+                    'contact_number':           y.contact_number,
+                    'is_in_school':             y.is_in_school,
+                    'is_osy':                   y.is_osy,
+                    'osy_willing_to_enroll':    y.osy_willing_to_enroll,
+                    'osy_program_type':         y.osy_program_type,
+                    'osy_reason_no_enroll':     y.osy_reason_no_enroll,
+                    'is_working_youth':         y.is_working_youth,
+                    'is_unemployed':           y.is_unemployed,
+                    'is_unemployed_youth':     y.is_unemployed,
+                    'is_pwd':                   y.is_pwd,
+                    'disability_type':          y.disability_type,
+                    'has_specific_needs':       y.has_specific_needs,
+                    'specific_needs_condition': y.specific_needs_condition,
+                    'is_ip':                    y.is_ip,
+                    'tribe_name':               y.tribe_name,
+                    'is_muslim':                y.is_muslim,
+                    'muslim_group':             y.muslim_group,
+                    'course':                   y.course,
+                    'school_name':              y.school_name,
+                    'is_scholar':               y.is_scholar,
+                    'scholarship_program':      y.scholarship_program,
+                    'work_status':              y.work_status,
+                    'registered_voter_sk':      y.registered_voter_sk,
+                    'registered_voter_national':y.registered_voter_national,
+                    'voted_last_sk':            y.voted_last_sk,
+                    'attended_kk_assembly':     y.attended_kk_assembly,
+                    'kk_assembly_times':        y.kk_assembly_times,
+                    'kk_assembly_no_reason':    y.kk_assembly_no_reason,
+                    'is_4ps':                   y.is_4ps,
+                    'number_of_children':       y.number_of_children,
+                },
+            })
+        return JsonResponse(data, safe=False)
+
+    # All mutating operations require authentication
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
+
+    # POST / PUT
+    if request.method in ('POST', 'PUT'):
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        try:
+            name = data.get('name', '').strip()
+            if not name:
+                return JsonResponse({'error': 'Name is required'}, status=400)
+            if _contains_profanity(name):
+                return JsonResponse(
+                    {'error': 'Inappropriate language detected in name.'}, status=400)
+
+            barangay = get_object_or_404(Barangay, id=data.get('barangay_id'))
+
+            def get_bool(key):
+                return bool(data.get(key, False))
+
+            def get_bool_alias(*keys):
+                for key in keys:
+                    if key in data:
+                        return bool(data.get(key, False))
+                return False
+
+            def get_int(key, default=0):
+                try:
+                    return int(data.get(key) or default)
+                except (ValueError, TypeError):
+                    return default
+
+            fields = {
+                'name':             name,
+                'birthdate':        data.get('birthdate') or None,
+                'sex':              data.get('sex'),
+                'civil_status':     data.get('civil_status'),
+                'religion':         data.get('religion'),
+                'purok':            data.get('purok'),
+                'barangay':         barangay,
+                'email':            data.get('email'),
+                'contact_number':   data.get('contact_number'),
+                'is_in_school':     get_bool('is_in_school'),
+                'is_osy':           get_bool('is_osy'),
+                'osy_willing_to_enroll': get_bool('osy_willing_to_enroll'),
+                'osy_program_type': data.get('osy_program_type'),
+                'osy_reason_no_enroll': data.get('osy_reason_no_enroll'),
+                'is_working_youth': get_bool('is_working_youth'),
+                'is_unemployed':   get_bool_alias('is_unemployed_youth', 'is_unemployed'),
+                'is_pwd':           get_bool('is_pwd'),
+                'disability_type':  data.get('disability_type'),
+                'has_specific_needs': get_bool('has_specific_needs'),
+                'specific_needs_condition': data.get('specific_needs_condition'),
+                'is_ip':            get_bool('is_ip'),
+                'tribe_name':       data.get('tribe_name'),
+                'is_muslim':        get_bool('is_muslim'),
+                'muslim_group':     data.get('muslim_group'),
+                'education_level':  data.get('education_level'),
+                'course':           data.get('course'),
+                'school_name':      data.get('school_name'),
+                'is_scholar':       get_bool('is_scholar'),
+                'scholarship_program': data.get('scholarship_program'),
+                'work_status':      data.get('work_status'),
+                'registered_voter_sk':      get_bool('registered_voter_sk'),
+                'registered_voter_national': get_bool('registered_voter_national'),
+                'voted_last_sk':    get_bool('voted_last_sk'),
+                'attended_kk_assembly': get_bool('attended_kk_assembly'),
+                'kk_assembly_times': get_int('kk_assembly_times'),
+                'kk_assembly_no_reason': data.get('kk_assembly_no_reason'),
+                'is_4ps':           get_bool('is_4ps'),
+                'number_of_children': get_int('number_of_children'),
+            }
+
+            if request.method == 'POST':
+                Youth.objects.create(**fields)
+                return JsonResponse({'message': 'Youth profile added successfully'})
+
+            # PUT updates an existing record
+            youth_id = data.get('id')
+            if not youth_id:
+                return JsonResponse({'error': 'ID is required for update'}, status=400)
+            youth = get_object_or_404(Youth, id=youth_id)
+            for key, value in fields.items():
+                setattr(youth, key, value)
+            youth.save()
+            return JsonResponse({'message': 'Youth profile updated successfully'})
+
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+    # DELETE
+    if request.method == 'DELETE':
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        try:
+            youth = get_object_or_404(Youth, id=data.get('id'))
+            youth.delete()
+            return JsonResponse({'message': 'Youth profile deleted successfully'})
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
