@@ -774,7 +774,7 @@ def _build_blank_form_pdf(barangay_name, include_logo=False):
         top,
         content_width,
         "Specific Needs",
-        ["Mark if applicable", *context['specific_needs_options']],
+        ["Mark if not applicable", *context['specific_needs_options']],
         columns=4,
         size=7.2,
         row_gap=2,
