@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import threading
+from pathlib import Path
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 _SCHEDULER_LOCK = threading.Lock()
 _SCHEDULER_STARTED = False
 _SCHEDULER_STOP_EVENT = threading.Event()
+_SCHEDULER_PROCESS_LOCK_HANDLE = None
 _SCHEDULER_SKIP_COMMANDS = {
     'makemigrations',
     'migrate',
@@ -22,6 +24,10 @@ _SCHEDULER_SKIP_COMMANDS = {
     'changepassword',
     'test',
 }
+
+
+def _is_runserver_parent_process():
+    return 'runserver' in sys.argv and os.environ.get('RUN_MAIN') != 'true'
 
 
 def years_ago(reference_date, years):
@@ -67,7 +73,7 @@ def purge_aged_out_youths(reference_date=None):
 def _should_skip_scheduler_start():
     if os.environ.get('LYDO_DISABLE_AGE_OUT_SCHEDULER') == '1':
         return True
-    if getattr(settings, 'DEBUG', False) and os.environ.get('RUN_MAIN') != 'true':
+    if _is_runserver_parent_process():
         return True
     if any(command in sys.argv for command in _SCHEDULER_SKIP_COMMANDS):
         return True
@@ -76,6 +82,43 @@ def _should_skip_scheduler_start():
 
 def _cleanup_interval_seconds():
     return max(300, int(getattr(settings, 'AGE_OUT_CLEANUP_INTERVAL_SECONDS', 3600)))
+
+
+def _scheduler_lock_path():
+    return Path(getattr(settings, 'BASE_DIR', Path.cwd())) / '.lydo_age_out_scheduler.lock'
+
+
+def _acquire_scheduler_process_lock():
+    global _SCHEDULER_PROCESS_LOCK_HANDLE
+
+    if _SCHEDULER_PROCESS_LOCK_HANDLE is not None:
+        return True
+
+    lock_file = open(_scheduler_lock_path(), 'a+b')
+
+    try:
+        if os.name == 'nt':
+            import msvcrt
+
+            lock_file.seek(0)
+            lock_file.write(b'0')
+            lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        return False
+
+    lock_file.seek(0)
+    lock_file.truncate()
+    lock_file.write(str(os.getpid()).encode('ascii', 'ignore') or b'0')
+    lock_file.flush()
+    _SCHEDULER_PROCESS_LOCK_HANDLE = lock_file
+    return True
 
 
 def _cleanup_loop():
@@ -103,6 +146,8 @@ def start_aged_out_cleanup_scheduler():
 
     with _SCHEDULER_LOCK:
         if _SCHEDULER_STARTED:
+            return False
+        if not _acquire_scheduler_process_lock():
             return False
 
         worker = threading.Thread(

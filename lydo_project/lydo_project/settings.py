@@ -17,6 +17,20 @@ from urllib.parse import urlparse
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _env_list(name: str, default=None):
+    value = os.environ.get(name)
+    if not value:
+        return list(default or [])
+    return [item.strip() for item in value.split(',') if item.strip()]
+
 # ------------------ Debug helpers (crucial) ------------------
 # Quick checklist to debug missing CSS/static templates:
 # - Ensure `TEMPLATES['DIRS']` points to the frontend folder so
@@ -32,12 +46,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-tft%%3i$8q64@x(fjn!j!@39e&j7@nr5h#aj5a#i9m&4-uys53'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-tft%%3i$8q64@x(fjn!j!@39e&j7@nr5h#aj5a#i9m&4-uys53')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_bool('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', ['127.0.0.1', 'localhost'] if DEBUG else [])
 
 
 # Application definition
@@ -65,6 +79,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'lydo_project.urls'
+ASGI_APPLICATION = 'lydo_project.asgi.application'
 
 TEMPLATES = [
     {
@@ -112,33 +127,35 @@ def _parse_database_url(url: str):
 # - If `DATABASE_URL` is set prefer that (supports dj-database-url)
 # - Else if any `POSTGRES_*` vars are set, use them
 # - Else fall back to local defaults
-# Example (keeps here as reference):
-# DATABASES = {}
-# if os.environ.get('DATABASE_URL'):
-#     # prefer dj-database-url if installed, otherwise use local parser
-#     try:
-#         import dj_database_url
-#
-#         DATABASES['default'] = dj_database_url.parse(os.environ['DATABASE_URL'], conn_max_age=600)
-#     except Exception:
-#         DATABASES['default'] = _parse_database_url(os.environ['DATABASE_URL'])
-#         DATABASES['default']['CONN_MAX_AGE'] = 600
-#         DATABASES['default']['OPTIONS'] = {'connect_timeout': 10}
-# elif os.environ.get('POSTGRES_DB') or os.environ.get('POSTGRES_USER') or os.environ.get('POSTGRES_PASSWORD') or os.environ.get('POSTGRES_HOST'):
-#     DATABASES['default'] = {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.environ.get('POSTGRES_DB', 'lydo'),
-#         'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-#         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
-#         # prefer IPv4 loopback to avoid IPv6 binding mismatch
-#         'HOST': os.environ.get('POSTGRES_HOST', '127.0.0.1'),
-#         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-#         'CONN_MAX_AGE': 600,
-#         'OPTIONS': {'connect_timeout': 10},
-#     }
-# else:
-DATABASES = {
-    'default': {
+DATABASES = {}
+
+if os.environ.get('DATABASE_URL'):
+    try:
+        import dj_database_url
+
+        DATABASES['default'] = dj_database_url.parse(os.environ['DATABASE_URL'], conn_max_age=600)
+    except Exception:
+        DATABASES['default'] = _parse_database_url(os.environ['DATABASE_URL'])
+        DATABASES['default']['CONN_MAX_AGE'] = 600
+        DATABASES['default']['OPTIONS'] = {'connect_timeout': 10}
+elif (
+    os.environ.get('POSTGRES_DB')
+    or os.environ.get('POSTGRES_USER')
+    or os.environ.get('POSTGRES_PASSWORD')
+    or os.environ.get('POSTGRES_HOST')
+):
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'lydo'),
+        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+        'HOST': os.environ.get('POSTGRES_HOST', '127.0.0.1'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'CONN_MAX_AGE': 600,
+        'OPTIONS': {'connect_timeout': 10},
+    }
+else:
+    DATABASES['default'] = {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
         'NAME': 'lydo',
         'USER': 'postgres',
@@ -146,7 +163,6 @@ DATABASES = {
         'HOST': 'localhost',
         'PORT': '5432',
     }
-}
 
 
 # Password validation
@@ -187,6 +203,7 @@ AGE_OUT_CLEANUP_INTERVAL_SECONDS = 3600
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, '..', 'frontend'),
@@ -196,5 +213,16 @@ STATICFILES_DIRS = [
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG and _env_bool('DJANGO_CORS_ALLOW_ALL', True)
+CORS_ALLOWED_ORIGINS = _env_list('DJANGO_CORS_ALLOWED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = _env_bool('DJANGO_USE_X_FORWARDED_HOST', not DEBUG)
+SECURE_SSL_REDIRECT = _env_bool('DJANGO_SECURE_SSL_REDIRECT', False if DEBUG else False)
+SESSION_COOKIE_SECURE = _env_bool('DJANGO_SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = _env_bool('DJANGO_CSRF_COOKIE_SECURE', not DEBUG)
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0' if DEBUG else '3600'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', not DEBUG)
+SECURE_HSTS_PRELOAD = _env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
 

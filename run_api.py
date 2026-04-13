@@ -1,24 +1,38 @@
-"""Run the FastAPI app with Uvicorn, ensuring the project root is on sys.path.
+"""Run the shared FastAPI + Django ASGI app with Uvicorn.
 
 Usage:
+    uvicorn --app-dir lydo_project lydo_project.fastapi_app:app --reload
     python run_api.py
-
-This script makes `backend` importable even if you run it from a different CWD.
 """
 
 import os
 import sys
 
-# Ensure project root (this file's directory) is first on sys.path
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+PROJECT_ROOT = os.path.join(ROOT, "lydo_project")
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 
 def main() -> None:
     import uvicorn
 
-    uvicorn.run("helper_scripts.api:app", host="127.0.0.1", port=8000, reload=True)
+    host = os.environ.get("UVICORN_HOST", "127.0.0.1")
+    port = int(os.environ.get("UVICORN_PORT", "8001"))
+    reload_enabled = os.environ.get("UVICORN_RELOAD", "1").strip().lower() in {"1", "true", "yes", "on"}
+    log_level = os.environ.get("UVICORN_LOG_LEVEL", "info")
+
+    uvicorn.run(
+        "lydo_project.fastapi_app:app",
+        host=host,
+        port=port,
+        reload=reload_enabled,
+        log_level=log_level,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":

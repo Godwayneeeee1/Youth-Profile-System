@@ -13,3 +13,4 @@ __pycache__/
 venv/
 env/
 .DS_Store
+lydo_project/.lydo_age_out_scheduler.lock
