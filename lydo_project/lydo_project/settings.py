@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from urllib.parse import urlparse
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -32,6 +33,11 @@ def _env_list(name: str, default=None):
     if not value:
         return list(default or [])
     return [item.strip() for item in value.split(',') if item.strip()]
+
+
+def _is_collectstatic_command() -> bool:
+    """Detect static-only build steps so deploys do not require a DB driver."""
+    return any(arg == 'collectstatic' for arg in sys.argv)
 
 # ------------------ Debug helpers (crucial) ------------------
 # Quick checklist to debug missing CSS/static templates:
@@ -165,14 +171,20 @@ elif (
         'OPTIONS': {'connect_timeout': 10},
     }
 else:
-    DATABASES['default'] = {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'lydo',
-        'USER': 'postgres',
-        'PASSWORD': 'P@ssw0rd',
-        'HOST': 'localhost',
-        'PORT': '5432',
-    }
+    if _is_collectstatic_command():
+        DATABASES['default'] = {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    else:
+        DATABASES['default'] = {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': 'lydo',
+            'USER': 'postgres',
+            'PASSWORD': 'P@ssw0rd',
+            'HOST': 'localhost',
+            'PORT': '5432',
+        }
 
 
 # Password validation
