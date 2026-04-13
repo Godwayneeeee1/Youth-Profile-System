@@ -1,0 +1,790 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heatmap | LYDO Youth Profiling</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .page-body {
+            max-width: min(96vw, 1680px);
+        }
+        .heatmap-layout {
+            display: grid;
+            gap: 18px;
+        }
+        .heatmap-toolbar .report-card-body {
+            display: grid;
+            gap: 14px;
+        }
+        .heatmap-toolbar-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .heatmap-description {
+            max-width: 920px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+        .heatmap-chip-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .heatmap-metric-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .heatmap-metric-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 12px;
+            border: 1px solid rgba(31, 79, 163, 0.16);
+            border-radius: 12px;
+            background: #ffffff;
+            color: var(--navy);
+            font-size: 0.8rem;
+            font-weight: 800;
+            transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background-color .12s ease;
+            cursor: pointer;
+        }
+        .heatmap-metric-button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(31, 79, 163, 0.32);
+            box-shadow: 0 10px 24px rgba(15, 37, 88, 0.08);
+        }
+        .heatmap-metric-button.active {
+            background: rgba(31, 79, 163, 0.1);
+            border-color: rgba(31, 79, 163, 0.38);
+            color: #153b7d;
+            box-shadow: inset 0 0 0 1px rgba(31, 79, 163, 0.08);
+        }
+        .heatmap-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid rgba(217, 119, 6, 0.18);
+            border-radius: 999px;
+            background: rgba(217, 119, 6, 0.08);
+            color: #b45309;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        .heatmap-gradient-legend {
+            display: grid;
+            gap: 8px;
+            min-width: 220px;
+        }
+        .heatmap-gradient-bar {
+            height: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #2563eb 0%, #10b981 34%, #facc15 68%, #dc2626 100%);
+            border: 1px solid rgba(15, 37, 88, 0.08);
+        }
+        .heatmap-gradient-labels {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+        .heatmap-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+        }
+        .heatmap-stat {
+            border: 1px solid var(--border);
+            border-radius: var(--r-lg);
+            background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(244,247,255,.96));
+            padding: 14px 16px;
+        }
+        .heatmap-stat-label {
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-light);
+        }
+        .heatmap-stat-value {
+            margin-top: 6px;
+            font-family: 'Bricolage Grotesque', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: var(--navy);
+        }
+        .heatmap-stat-note {
+            margin-top: 4px;
+            font-size: 0.76rem;
+            color: var(--text-muted);
+        }
+        .heatmap-shell {
+            border: 1px solid var(--border);
+            border-radius: var(--r-lg);
+            overflow: hidden;
+            background: #fff;
+        }
+        .heatmap-scroll {
+            overflow: auto;
+            max-height: min(72vh, 860px);
+        }
+        .heatmap-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 1460px;
+        }
+        .heatmap-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+            background: #f8faff;
+            color: var(--text-muted);
+            font-size: 0.68rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 10px 8px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            box-shadow: inset 0 -1px 0 rgba(211, 221, 236, 0.96);
+        }
+        .heatmap-table thead .heatmap-rowhead {
+            z-index: 6;
+            background: #f8faff;
+        }
+        .heatmap-table tbody td,
+        .heatmap-table tbody th {
+            border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(228, 234, 245, 0.78);
+        }
+        .heatmap-table tbody tr:last-child td,
+        .heatmap-table tbody tr:last-child th {
+            border-bottom: none;
+        }
+        .heatmap-rowhead {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            min-width: 220px;
+            max-width: 220px;
+            background: #fff;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        .heatmap-rowname {
+            font-weight: 800;
+            color: var(--navy);
+            line-height: 1.1;
+        }
+        .heatmap-rowsub {
+            margin-top: 4px;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+        .heatmap-sex-head,
+        .heatmap-sex-cell,
+        .heatmap-total-head,
+        .heatmap-total-cell {
+            position: sticky;
+            z-index: 3;
+            background: #fff;
+        }
+        .heatmap-male-head,
+        .heatmap-male-cell {
+            right: 164px;
+            min-width: 82px;
+        }
+        .heatmap-female-head,
+        .heatmap-female-cell {
+            right: 82px;
+            min-width: 82px;
+        }
+        .heatmap-sex-cell {
+            text-align: center;
+            font-weight: 800;
+            color: var(--navy);
+            font-size: 0.8rem;
+        }
+        .heatmap-total-head {
+            right: 0;
+            z-index: 7;
+        }
+        .heatmap-total-cell {
+            right: 0;
+            min-width: 72px;
+            text-align: center;
+            font-weight: 800;
+            color: var(--navy);
+            font-size: 0.82rem;
+        }
+        .heatmap-table thead .heatmap-sex-head,
+        .heatmap-table thead .heatmap-total-head {
+            z-index: 6;
+            background: #f8faff;
+            box-shadow: inset 1px 0 0 rgba(211, 221, 236, 0.96), inset 0 -1px 0 rgba(211, 221, 236, 0.96);
+        }
+        .heatmap-cell {
+            width: 58px;
+            min-width: 58px;
+            height: 52px;
+            text-align: center;
+            vertical-align: middle;
+            font-weight: 800;
+            font-size: 0.82rem;
+            color: var(--navy);
+            transition: transform .12s ease, box-shadow .12s ease;
+            cursor: default;
+        }
+        .heatmap-cell:hover {
+            transform: scale(1.03);
+            box-shadow: inset 0 0 0 2px rgba(15, 37, 88, 0.12);
+        }
+        .heatmap-cell.zero {
+            color: var(--text-light);
+        }
+        .heatmap-table tbody tr:hover .heatmap-rowhead,
+        .heatmap-table tbody tr:hover .heatmap-sex-cell,
+        .heatmap-table tbody tr:hover .heatmap-total-cell {
+            background: #f8fbff;
+        }
+        .heatmap-empty {
+            padding: 42px 18px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.92rem;
+        }
+        @media (max-width: 991px) {
+            .heatmap-summary-grid {
+                grid-template-columns: 1fr;
+            }
+            .heatmap-gradient-legend {
+                min-width: 100%;
+            }
+            .heatmap-scroll {
+                max-height: min(65vh, 720px);
+            }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="app-navbar">
+    <button class="btn-navbar-menu" onclick="toggleSidebar()" aria-label="Menu">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+        Menu
+    </button>
+    <a class="navbar-brand-area" href="/">
+        <img src="{% static 'images/logo.png' %}" alt="LYDO Logo">
+        <div>
+            <div class="brand-text-main">LYDO Youth Profiling</div>
+            <div class="brand-text-sub">Manolo Fortich, Bukidnon</div>
+        </div>
+    </a>
+    <div class="navbar-spacer"></div>
+    <div class="navbar-user" id="user-display" style="display:none;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span id="account-label">Account</span>: <b id="username-span"></b>
+    </div>
+    <button id="logout-btn" class="btn-logout" onclick="logout()" style="display:none;">Logout</button>
+</nav>
+
+<div id="side-menu" aria-hidden="true">
+    <div class="side-menu-header">
+        <div class="side-menu-logo">
+            <img src="{% static 'images/logo.png' %}" alt="logo">
+            <span>LYDO</span>
+        </div>
+        <button class="btn-close-side" onclick="closeSidebar()" aria-label="Close">&times;</button>
+    </div>
+    <div class="side-menu-body">
+        <div class="side-menu-section">Navigation</div>
+        <a href="/" class="menu-item" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+        </a>
+        <a href="/reports/" class="menu-item" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Reports
+        </a>
+        <a href="/heatmap/" class="menu-item active" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+            Heatmap
+        </a>
+        <a href="/talentsport/" class="menu-item" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3l2.7 5.47 6.03.88-4.36 4.25 1.03 6-5.4-2.84-5.4 2.84 1.03-6-4.36-4.25 6.03-.88z"/></svg>
+            Talent/Sports Map
+        </a>
+        <a href="/account/" class="menu-item system-admin-only" style="display:none;" onclick="closeSidebar();">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Barangay Active Account
+        </a>
+    </div>
+</div>
+<div id="side-overlay" class="side-overlay" onclick="closeSidebar()" aria-hidden="true"></div>
+
+<div class="page-body">
+    <div class="page-header">
+        <div>
+            <h1 id="heatmap-page-title" class="page-header-title">Youth Heatmap Grid</h1>
+            <p id="heatmap-page-sub" class="page-header-sub">Barangay by age hotspot view for unemployed youth, out of school youth, and PWD ages 15 to 30</p>
+        </div>
+    </div>
+
+    <div class="heatmap-layout">
+        <div class="report-card heatmap-toolbar">
+            <div class="report-card-header">
+                <div class="report-card-icon">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18"></path><path d="M9 3v18"></path><path d="M15 3v18"></path></svg>
+                </div>
+                <div>
+                    <div class="report-card-title">Barangay vs. Age Hotspots</div>
+                    <div id="heatmap-toolbar-subtitle" style="font-size:.78rem;color:var(--text-muted);">Darker cells indicate higher counts for the selected youth category at that exact age in that barangay</div>
+                </div>
+            </div>
+            <div class="report-card-body">
+                <div class="heatmap-toolbar-top">
+                    <p id="heatmap-description" class="heatmap-description">
+                        This heatmap helps the local government spot where youth clusters form by age inside each barangay. Switch between key categories to find where targeted programs may be needed most.
+                    </p>
+                    <div class="heatmap-gradient-legend">
+                        <div class="heatmap-gradient-bar"></div>
+                        <div class="heatmap-gradient-labels">
+                            <span>Lower concentration</span>
+                            <span>Higher concentration</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="heatmap-metric-controls" role="tablist" aria-label="Heatmap category selector">
+                    <button type="button" class="heatmap-metric-button active" data-metric="unemployed" aria-pressed="true">Unemployed Youth</button>
+                    <button type="button" class="heatmap-metric-button" data-metric="osy" aria-pressed="false">Out of School Youth</button>
+                    <button type="button" class="heatmap-metric-button" data-metric="pwd" aria-pressed="false">PWD Youth</button>
+                </div>
+                <div class="heatmap-chip-row">
+                    <span id="heatmap-metric-chip" class="heatmap-chip">Metric: Unemployed Youth</span>
+                    <span id="heatmap-rows-chip" class="heatmap-chip">Rows: 22 Barangays</span>
+                    <span id="heatmap-age-chip" class="heatmap-chip">Columns: Ages 15 to 30</span>
+                </div>
+                <div id="heatmap-summary-grid" class="heatmap-summary-grid">
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Strongest Hotspot</div>
+                        <div id="heatmap-top-hotspot" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-hotspot-note" class="heatmap-stat-note">Checking category concentration by age.</div>
+                    </div>
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Top Female Total</div>
+                        <div id="heatmap-top-female" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-female-note" class="heatmap-stat-note">Checking which barangay has the highest female count.</div>
+                    </div>
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Top Male Total</div>
+                        <div id="heatmap-top-male" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-male-note" class="heatmap-stat-note">Checking which barangay has the highest male count.</div>
+                    </div>
+                    <div id="heatmap-top-barangay-card" class="heatmap-stat">
+                        <div class="heatmap-stat-label">Most Affected Barangay</div>
+                        <div id="heatmap-top-barangay" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-barangay-note" class="heatmap-stat-note">Summing selected category counts across ages 15 to 30.</div>
+                    </div>
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Peak Age Overall</div>
+                        <div id="heatmap-top-age" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-age-note" class="heatmap-stat-note">Looking for the age with the highest concentration.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="report-card">
+            <div class="report-card-header">
+                <div class="report-card-icon">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3h18v18H3z"></path><path d="M8 3v18"></path><path d="M3 8h18"></path></svg>
+                </div>
+                <div>
+                    <div class="report-card-title">Heatmap Grid</div>
+                    <div id="heatmap-grid-note" style="font-size:.78rem;color:var(--text-muted);">Loading barangay heatmap data...</div>
+                </div>
+                </div>
+                <div class="report-card-body">
+                    <div class="heatmap-shell">
+                        <div id="heatmap-shell" class="heatmap-scroll">
+                            <div class="heatmap-empty">Loading heatmap data...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+</div>
+
+<script>
+    const HEATMAP_METRICS = {
+        unemployed: {
+            label: 'Unemployed Youth',
+            noun: 'unemployed youth'
+        },
+        osy: {
+            label: 'Out of School Youth',
+            noun: 'out of school youth'
+        },
+        pwd: {
+            label: 'PWD Youth',
+            noun: 'PWD youth'
+        }
+    };
+
+    const heatmapState = {
+        payload: null,
+        activeMetric: 'unemployed',
+        currentUser: null
+    };
+
+    function getMetricMeta(metricKey) {
+        return HEATMAP_METRICS[metricKey] || HEATMAP_METRICS.unemployed;
+    }
+
+    function hexToRgb(hex) {
+        const normalized = String(hex || '').replace('#', '');
+        if (normalized.length !== 6) return [31, 79, 163];
+        return [
+            parseInt(normalized.slice(0, 2), 16),
+            parseInt(normalized.slice(2, 4), 16),
+            parseInt(normalized.slice(4, 6), 16)
+        ];
+    }
+
+    function blendRgb(start, end, ratio) {
+        const mix = start.map((value, index) => Math.round(value + ((end[index] - value) * ratio)));
+        return mix;
+    }
+
+    function getHeatmapRgb(ratio) {
+        const stops = [
+            { stop: 0, color: hexToRgb('#2563eb') },
+            { stop: 0.34, color: hexToRgb('#10b981') },
+            { stop: 0.68, color: hexToRgb('#facc15') },
+            { stop: 1, color: hexToRgb('#dc2626') }
+        ];
+
+        const normalized = Math.max(0, Math.min(1, ratio));
+        for (let index = 1; index < stops.length; index += 1) {
+            const previous = stops[index - 1];
+            const current = stops[index];
+            if (normalized <= current.stop) {
+                const segmentRatio = (normalized - previous.stop) / (current.stop - previous.stop || 1);
+                return blendRgb(previous.color, current.color, segmentRatio);
+            }
+        }
+
+        return stops[stops.length - 1].color;
+    }
+
+    function relativeLuminance(rgb) {
+        const [r, g, b] = rgb.map(channel => {
+            const value = channel / 255;
+            return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+    }
+
+    function cellStyle(value, maxValue) {
+        if (!value || maxValue <= 0) {
+            return {
+                background: '#f8fbff',
+                color: '#8ea0bf'
+            };
+        }
+
+        const ratio = value / maxValue;
+        const rgb = getHeatmapRgb(ratio);
+        const background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        return {
+            background,
+            color: relativeLuminance(rgb) < 0.42 ? '#ffffff' : '#0f2558'
+        };
+    }
+
+    function metricTitle(meta) {
+        return `${meta.label} Heatmap`;
+    }
+
+    function metricSubtitle(meta) {
+        return `Barangay by age hotspot view for ${meta.noun} ages 15 to 30`;
+    }
+
+    function metricToolbarSubtitle(meta) {
+        return `Darker cells indicate higher counts of ${meta.noun} at that exact age in that barangay`;
+    }
+
+    function metricDescription(meta) {
+        return `This heatmap helps the local government spot where ${meta.noun} cluster by age. If one barangay is dark around ages 18 to 21 while another peaks later, programs can be targeted more precisely.`;
+    }
+
+    function syncMetricButtons() {
+        document.querySelectorAll('.heatmap-metric-button').forEach(button => {
+            const isActive = button.dataset.metric === heatmapState.activeMetric;
+            button.classList.toggle('active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    }
+
+    function applyMetricCopy(meta, ages, rowCount) {
+        document.getElementById('heatmap-page-title').textContent = metricTitle(meta);
+        document.getElementById('heatmap-page-sub').textContent = metricSubtitle(meta);
+        document.getElementById('heatmap-toolbar-subtitle').textContent = metricToolbarSubtitle(meta);
+        document.getElementById('heatmap-description').textContent = metricDescription(meta);
+        document.getElementById('heatmap-metric-chip').textContent = `Metric: ${meta.label}`;
+        document.getElementById('heatmap-rows-chip').textContent = `Rows: ${rowCount} Barangays`;
+        document.getElementById('heatmap-age-chip').textContent =
+            ages.length ? `Columns: Ages ${ages[0]} to ${ages[ages.length - 1]}` : 'Columns: Ages 15 to 30';
+    }
+
+    function syncHeatmapSummaryVisibility() {
+        const topBarangayCard = document.getElementById('heatmap-top-barangay-card');
+        const isAdmin = !!heatmapState.currentUser?.is_admin;
+        if (topBarangayCard) {
+            topBarangayCard.style.display = isAdmin ? '' : 'none';
+        }
+    }
+
+    function updateHeatmapSummary(metricData, ages, meta) {
+        const rows = Array.isArray(metricData?.rows) ? metricData.rows : [];
+
+        let topHotspot = { barangay: 'None', age: '-', count: 0 };
+        let topBarangay = { barangay: 'None', total: 0 };
+        let topFemale = { barangay: 'None', total: 0 };
+        let topMale = { barangay: 'None', total: 0 };
+        let topAge = { age: '-', total: 0 };
+
+        const ageTotals = Object.fromEntries(ages.map(age => [age, 0]));
+
+        rows.forEach(row => {
+            const rowTotal = Number(row.total || 0);
+            const femaleTotal = Number(row.female_total || 0);
+            const maleTotal = Number(row.male_total || 0);
+            if (rowTotal > topBarangay.total) {
+                topBarangay = { barangay: row.barangay, total: rowTotal };
+            }
+            if (femaleTotal > topFemale.total) {
+                topFemale = { barangay: row.barangay, total: femaleTotal };
+            }
+            if (maleTotal > topMale.total) {
+                topMale = { barangay: row.barangay, total: maleTotal };
+            }
+
+            ages.forEach(age => {
+                const count = Number(row.counts?.[age] || 0);
+                ageTotals[age] += count;
+                if (count > topHotspot.count) {
+                    topHotspot = { barangay: row.barangay, age, count };
+                }
+            });
+        });
+
+        ages.forEach(age => {
+            if (ageTotals[age] > topAge.total) {
+                topAge = { age, total: ageTotals[age] };
+            }
+        });
+
+        document.getElementById('heatmap-top-hotspot').textContent =
+            topHotspot.count > 0 ? `${topHotspot.barangay}, Age ${topHotspot.age}` : 'No hotspot yet';
+        document.getElementById('heatmap-top-hotspot-note').textContent =
+            topHotspot.count > 0 ? `${topHotspot.count} ${meta.noun} in the strongest single cell.` : `No ${meta.noun} recorded for ages 15 to 30.`;
+
+        document.getElementById('heatmap-top-female').textContent =
+            topFemale.total > 0 ? topFemale.barangay : 'No female data';
+        document.getElementById('heatmap-top-female-note').textContent =
+            topFemale.total > 0 ? `${topFemale.total} female ${meta.noun} across ages 15 to 30.` : `No female ${meta.noun} totals found.`;
+
+        document.getElementById('heatmap-top-male').textContent =
+            topMale.total > 0 ? topMale.barangay : 'No male data';
+        document.getElementById('heatmap-top-male-note').textContent =
+            topMale.total > 0 ? `${topMale.total} male ${meta.noun} across ages 15 to 30.` : `No male ${meta.noun} totals found.`;
+
+        document.getElementById('heatmap-top-barangay').textContent =
+            topBarangay.total > 0 ? topBarangay.barangay : 'No barangay data';
+        document.getElementById('heatmap-top-barangay-note').textContent =
+            topBarangay.total > 0 ? `${topBarangay.total} ${meta.noun} across all tracked ages.` : `No ${meta.noun} barangay totals found.`;
+
+        document.getElementById('heatmap-top-age').textContent =
+            topAge.total > 0 ? `Age ${topAge.age}` : 'No age peak';
+        document.getElementById('heatmap-top-age-note').textContent =
+            topAge.total > 0 ? `${topAge.total} ${meta.noun} across all barangays at this age.` : `No ${meta.noun} age concentration found.`;
+    }
+
+    function renderHeatmap(metricData, ages, meta) {
+        const shell = document.getElementById('heatmap-shell');
+        const note = document.getElementById('heatmap-grid-note');
+        const rows = Array.isArray(metricData?.rows) ? metricData.rows : [];
+        const maxCount = Number(metricData?.max_count || 0);
+
+        if (!rows.length || !ages.length) {
+            shell.innerHTML = '<div class="heatmap-empty">No heatmap data available right now.</div>';
+            if (note) note.textContent = `No ${meta.noun} heatmap data found.`;
+            updateHeatmapSummary({ rows: [] }, ages, meta);
+            return;
+        }
+
+        const head = `
+            <thead>
+                <tr>
+                    <th class="heatmap-rowhead">Barangay</th>
+                    ${ages.map(age => `<th>Age ${age}</th>`).join('')}
+                    <th class="heatmap-sex-head heatmap-male-head">Male</th>
+                    <th class="heatmap-sex-head heatmap-female-head">Female</th>
+                    <th class="heatmap-total-head">Total</th>
+                </tr>
+            </thead>
+        `;
+
+        const body = rows.map(row => {
+            const cells = ages.map(age => {
+                const value = Number(row.counts?.[age] || 0);
+                const style = cellStyle(value, maxCount);
+                const zeroClass = value === 0 ? ' zero' : '';
+                return `<td class="heatmap-cell${zeroClass}" title="${row.barangay} | Age ${age} | ${value} ${meta.noun}" style="background:${style.background};color:${style.color};">${value}</td>`;
+            }).join('');
+
+            const subtitle = row.total > 0 && row.peak_age
+                ? `Peak at age ${row.peak_age} with ${row.peak_count} | M ${row.male_total || 0} | F ${row.female_total || 0}`
+                : `No ${meta.noun} ages 15 to 30`;
+
+            return `
+                <tr>
+                    <th class="heatmap-rowhead" scope="row">
+                        <div class="heatmap-rowname">${row.barangay}</div>
+                        <div class="heatmap-rowsub">${subtitle}</div>
+                    </th>
+                    ${cells}
+                    <td class="heatmap-sex-cell heatmap-male-cell">${row.male_total || 0}</td>
+                    <td class="heatmap-sex-cell heatmap-female-cell">${row.female_total || 0}</td>
+                    <td class="heatmap-total-cell">${row.total}</td>
+                </tr>
+            `;
+        }).join('');
+
+        shell.innerHTML = `<table class="heatmap-table">${head}<tbody>${body}</tbody></table>`;
+        if (note) {
+            note.textContent = `Showing ${meta.noun} hotspots for ${rows.length} barangays across ages ${ages[0]} to ${ages[ages.length - 1]}.`;
+        }
+        updateHeatmapSummary(metricData, ages, meta);
+    }
+
+    function renderActiveMetric() {
+        if (!heatmapState.payload) return;
+
+        const ages = Array.isArray(heatmapState.payload.ages) ? heatmapState.payload.ages : [];
+        const metricData = heatmapState.payload.metrics?.[heatmapState.activeMetric];
+        const meta = getMetricMeta(heatmapState.activeMetric);
+        const rowCount = Array.isArray(metricData?.rows) ? metricData.rows.length : 0;
+
+        syncMetricButtons();
+        applyMetricCopy(meta, ages, rowCount);
+        renderHeatmap(metricData, ages, meta);
+    }
+
+    function setActiveMetric(metricKey) {
+        if (!heatmapState.payload?.metrics?.[metricKey]) return;
+        heatmapState.activeMetric = metricKey;
+        renderActiveMetric();
+    }
+
+    async function initHeatmap() {
+        const shell = document.getElementById('heatmap-shell');
+
+        document.querySelectorAll('.heatmap-metric-button').forEach(button => {
+            button.addEventListener('click', () => setActiveMetric(button.dataset.metric));
+        });
+
+        try {
+            const response = await fetch('/api/heatmap/');
+            if (!response.ok) throw new Error('Failed to load heatmap data');
+            const data = await response.json();
+            heatmapState.payload = data;
+            heatmapState.activeMetric = data.default_metric || data.metric_order?.[0] || 'unemployed';
+            renderActiveMetric();
+        } catch (error) {
+            console.warn('Could not load heatmap data:', error);
+            shell.innerHTML = '<div class="heatmap-empty">Could not load heatmap data right now.</div>';
+            const note = document.getElementById('heatmap-grid-note');
+            if (note) note.textContent = 'Unable to load heatmap data.';
+        }
+    }
+
+    function toggleSidebar() {
+        const menu = document.getElementById('side-menu');
+        const overlay = document.getElementById('side-overlay');
+        menu?.classList.toggle('open');
+        overlay?.classList.toggle('show');
+    }
+
+    function closeSidebar() {
+        document.getElementById('side-menu')?.classList.remove('open');
+        document.getElementById('side-overlay')?.classList.remove('show');
+    }
+
+    async function initializeProtectedNav() {
+        try {
+            const response = await fetch('/api/user/');
+            const data = response.ok ? await response.json() : null;
+            if (!data || !data.is_authenticated) {
+                window.location.href = '/login/';
+                return false;
+            }
+
+            const userDisplay = document.getElementById('user-display');
+            const usernameSpan = document.getElementById('username-span');
+            const accountLabel = document.getElementById('account-label');
+            const logoutBtn = document.getElementById('logout-btn');
+
+            if (userDisplay) userDisplay.style.display = 'block';
+            if (usernameSpan) {
+                usernameSpan.innerText = data.barangay_name && !data.is_admin
+                    ? `${data.username} (${data.barangay_name})`
+                    : data.username;
+            }
+            if (accountLabel) accountLabel.innerText = data.is_admin ? 'Admin' : 'Account';
+            if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+            document.querySelectorAll('.system-admin-only').forEach(el => {
+                el.style.display = data.is_admin ? '' : 'none';
+            });
+            heatmapState.currentUser = data;
+            syncHeatmapSummaryVisibility();
+            return true;
+        } catch (error) {
+            console.warn('Could not verify current user:', error);
+            window.location.href = '/login/';
+            return false;
+        }
+    }
+
+    function logout() {
+        fetch('/api/logout/').then(() => window.location.href = '/login/');
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeSidebar();
+    });
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const ready = await initializeProtectedNav();
+        if (!ready) return;
+        initHeatmap();
+    });
+</script>
+</body>
+</html>
