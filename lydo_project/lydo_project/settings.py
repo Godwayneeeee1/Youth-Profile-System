@@ -19,6 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse environment variables like 1/true/yes into booleans."""
     value = os.environ.get(name)
     if value is None:
         return default
@@ -26,6 +27,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _env_list(name: str, default=None):
+    """Parse comma-separated environment variables into string lists."""
     value = os.environ.get(name)
     if not value:
         return list(default or [])
@@ -111,6 +113,7 @@ WSGI_APPLICATION = 'lydo_project.wsgi.application'
 # 3) Fallback to local SQLite for development
 
 def _parse_database_url(url: str):
+    """Minimal DATABASE_URL parser for postgres-style URLs."""
     # Minimal DATABASE_URL parser (postgres://user:pass@host:port/dbname)
     result = urlparse(url)
     return {

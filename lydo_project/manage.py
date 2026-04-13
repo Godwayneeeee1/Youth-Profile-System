@@ -5,7 +5,8 @@ import sys
 
 
 def main():
-    """Run administrative tasks."""
+    """Run administrative tasks via Django's management command runner."""
+    # Point Django at the project settings module before any imports.
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'lydo_project.settings')
     try:
         from django.core.management import execute_from_command_line
@@ -15,6 +16,7 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
+    # Delegate to Django's CLI with the arguments passed to this script.
     execute_from_command_line(sys.argv)
 
 

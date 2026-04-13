@@ -8,6 +8,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
@@ -17,6 +18,8 @@ from django.conf import settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "lydo_project.settings")
 
+# Keep Django's ASGI app behind FastAPI so we can add service endpoints
+# without rewriting the existing site routing.
 django_app = ASGIStaticFilesHandler(get_asgi_application())
 trusted_hosts = list(settings.ALLOWED_HOSTS or [])
 
@@ -67,11 +70,18 @@ async def fastapi_info() -> dict[str, object]:
     }
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> RedirectResponse:
+    """Serve the browser favicon request from the existing shared logo asset."""
+    return RedirectResponse(url=f"{settings.STATIC_URL}images/logo.png", status_code=307)
+
+
 @app.on_event("startup")
 async def start_background_services() -> None:
+    """Start background jobs once when the FastAPI process boots."""
     from monitoring.age_rules import start_aged_out_cleanup_scheduler
 
     start_aged_out_cleanup_scheduler()
 
-
+# Mount Django last so explicit FastAPI routes above take priority.
 app.mount("/", django_app)

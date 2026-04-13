@@ -15,6 +15,8 @@ let TRANSFER_CONFIRM_MODAL = null;
 let TRANSFER_CONFIRM_RESOLVER = null;
 const YOUTH_MODAL_DRAFT_STORAGE_PREFIX = 'lydo-youth-modal-draft';
 
+// Page boot sequence is driven by DOMContentLoaded in this file.
+// Barangays in the same group are allowed transfer destinations for the same youth record.
 const YOUTH_BARANGAY_MOVE_GROUPS = [
 	['Alae', 'Mantibugao', 'Mambatangan'],
 	['Damilag', 'Agusan Canyon', 'San Miguel'],
@@ -107,6 +109,7 @@ function cssVarRgb(varName, fallback) {
 	} catch (e) { return fallback; }
 }
 
+// Normalize barangay names so transfer checks still work across spelling variants.
 function normalizeBarangayName(value) {
 	const normalized = String(value || '')
 		.normalize('NFKD')
@@ -179,6 +182,7 @@ function setBirthdateFeedback(message, tone = 'muted') {
 	feedback.textContent = message;
 }
 
+// Keep the age rule visible in the form and block saves once a user is 31+.
 function updateBirthdateEligibilityState() {
 	const input = $id('birthdate');
 	if (!input) return true;
@@ -536,6 +540,7 @@ function updateAutoTogglesState() {
 	}
 }
 
+// Load barangays, then refresh dashboard tiles and dropdowns.
 function fetchBarangays() {
 	fetch('/api/barangays/', { cache: 'no-store' }).then(res => res.json()).then(data => {
 		if (Array.isArray(data) && data.length) {
@@ -554,6 +559,7 @@ function getYouthById(id) {
 	return allYouths.find(y => y.id == id);
 }
 
+// Render the dashboard summary grid based on loaded youth data.
 function renderDashboard() {
 	const grid = document.getElementById('barangay-grid');
 	const pageSub = document.getElementById('dashboard-page-sub');
@@ -882,6 +888,7 @@ function showAdminAccountSection() {
 	window.location.href = '/account/';
 }
 
+// Verify the current session and hydrate CURRENT_USER.
 function checkUserStatus() {
 	return fetch('/api/user/').then(res => res.ok ? res.json() : null).then(data => {
 		const userDisplay = document.getElementById('user-display');
@@ -1069,6 +1076,7 @@ function handleRegister(e) {
 
 function logout() { fetch('/api/logout/').then(() => window.location.reload()); }
 
+// Fetch youth records for the current barangay and refresh the UI.
 function fetchYouths() {
 	fetch(`/api/youth/?_=${Date.now()}`, { cache: 'no-store' }).then(res => res.json()).then(data => {
 		allYouths = data;
@@ -1786,6 +1794,7 @@ function resetYouthModalState() {
 	}
 }
 
+// Open the youth profile modal for add/edit flows.
 function openModal() {
 	resetYouthModalState();
 	restoreYouthModalDraft();
@@ -1868,6 +1877,7 @@ function editYouth(id) {
 	showEditModal();
 }
 
+// Validate and submit the youth form payload to the backend.
 function saveYouth(e) {
 	e.preventDefault();
 	const getVal = (id) => document.getElementById(id).value;
@@ -1981,7 +1991,10 @@ function saveYouth(e) {
 										const birthdateInput = $id('birthdate');
 										if (birthdateInput) birthdateInput.focus();
 									} else if (obj && obj.duplicate_youth) {
-										showModalAlert(obj.error || 'Duplicate youth record detected in another barangay.');
+										showModalAlert(
+											obj.error || 'Duplicate youth record detected in another barangay.',
+											{ duration: 9000 }
+										);
 										const nameInput = $id('name');
 										if (nameInput) nameInput.focus();
 									} else if (obj && obj.requires_confirmation) {
@@ -2054,7 +2067,10 @@ function saveYouth(e) {
 							const birthdateInput = $id('birthdate');
 							if (birthdateInput) birthdateInput.focus();
 						} else if (obj && obj.duplicate_youth) {
-							showModalAlert(obj.error || 'Duplicate youth record detected in another barangay.');
+							showModalAlert(
+								obj.error || 'Duplicate youth record detected in another barangay.',
+								{ duration: 9000 }
+							);
 							const nameInput = $id('name');
 							if (nameInput) nameInput.focus();
 						} else if (obj && obj.requires_confirmation) {
@@ -2114,7 +2130,11 @@ function validatePersonalTab() {
 	return true;
 }
 
-function showModalAlert(msg) {
+/**
+ * Show a temporary warning at the top of the youth modal.
+ * `options.duration` lets important alerts stay visible longer.
+ */
+function showModalAlert(msg, options = {}) {
 	const modalBody = document.querySelector('#youthModal .modal-body');
 	if (!modalBody) return alert(msg);
 	const existing = modalBody.querySelector('.temp-modal-alert');
@@ -2124,7 +2144,10 @@ function showModalAlert(msg) {
 	el.style.marginBottom = '10px';
 	el.textContent = msg;
 	modalBody.insertBefore(el, modalBody.firstChild);
-	setTimeout(() => el.remove(), 3500);
+	const duration = Number.isFinite(options.duration) ? options.duration : 3500;
+	if (duration > 0) {
+		setTimeout(() => el.remove(), duration);
+	}
 }
 
 function initTransferConfirmModal() {

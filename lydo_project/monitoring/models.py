@@ -1,8 +1,10 @@
+"""Database models for LYDO youth profiling."""
 from django.conf import settings
 from django.db import models
 
 
 class Barangay(models.Model):
+    """Represents a barangay within the municipality."""
     name = models.CharField(max_length=100)
     
     def __str__(self):
@@ -10,6 +12,7 @@ class Barangay(models.Model):
 
 
 class UserBarangayAssignment(models.Model):
+    """Links a user account to a specific barangay for access scoping."""
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='barangay_assignment')
     barangay = models.ForeignKey(Barangay, on_delete=models.CASCADE, related_name='assigned_users')
 
@@ -18,6 +21,7 @@ class UserBarangayAssignment(models.Model):
 
 
 class UserAccessLog(models.Model):
+    """Tracks login/logout activity for audit and monitoring."""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='access_logs')
     barangay = models.ForeignKey(Barangay, null=True, blank=True, on_delete=models.SET_NULL, related_name='access_logs')
     session_key = models.CharField(max_length=80, blank=True, db_index=True)
@@ -32,6 +36,7 @@ class UserAccessLog(models.Model):
 
 
 class Youth(models.Model):
+    """Primary youth record with demographics, classifications, and civic details."""
     # --- DEMOGRAPHICS ---
     name = models.CharField(max_length=200, help_text="Full Name")
     birthdate = models.DateField(null=True, blank=True)
@@ -136,6 +141,7 @@ class Youth(models.Model):
 
     @property
     def age(self):
+        """Compute age from birthdate for display and reporting."""
         import datetime
         if self.birthdate:
             today = datetime.date.today()

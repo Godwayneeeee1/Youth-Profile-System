@@ -1,3 +1,4 @@
+"""Django views and JSON APIs for the LYDO youth profiling system."""
 import json
 import datetime
 import io
@@ -23,6 +24,7 @@ from django.utils import timezone
 from .age_rules import age_on_date, is_birthdate_aged_out as _shared_is_birthdate_aged_out, purge_aged_out_youths as _shared_purge_aged_out_youths
 from .models import Youth, Barangay, UserBarangayAssignment, UserAccessLog
 
+# --- Validation helpers and shared utilities ---
 # Optional profanity filter (graceful fallback if package not installed)
 try:
     from better_profanity import profanity
@@ -76,6 +78,7 @@ def _barangay_account_exists(barangay, exclude_user_id=None):
 
 
 def _log_user_access(request, user):
+    """Record a login event and close any prior open sessions for the user."""
     UserAccessLog.objects.filter(user=user, logout_time__isnull=True).update(logout_time=timezone.now())
     if not request.session.session_key:
         request.session.save()
@@ -88,12 +91,11 @@ def _log_user_access(request, user):
 
 
 def _close_active_access_logs(user):
+    """Mark any still-open access logs for the user as closed."""
     UserAccessLog.objects.filter(user=user, logout_time__isnull=True).update(logout_time=timezone.now())
 
 
-# Public page views
-# PAGE VIEWS
-# Page access control
+# --- Public page views (HTML templates) ---
 
 @ensure_csrf_cookie
 def index(request):
@@ -118,6 +120,7 @@ def register_page(request):
 
 
 def reports_page(request, bid=None):
+    """Reports page (optionally filtered by barangay)."""
     """Reports page."""
     if not request.user.is_authenticated:
         return redirect('login_page')
@@ -125,6 +128,7 @@ def reports_page(request, bid=None):
 
 
 def heatmap_page(request):
+    """Heatmap visualization page."""
     """Barangay by age heatmap page."""
     if not request.user.is_authenticated:
         return redirect('login_page')
@@ -132,6 +136,7 @@ def heatmap_page(request):
 
 
 def account_page(request):
+    """Admin account management page."""
     """Admin-only barangay account activity page."""
     if not request.user.is_authenticated:
         return redirect('login_page')
@@ -141,6 +146,7 @@ def account_page(request):
 
 
 def talent_sports_map_page(request):
+    """Talent and sports map page."""
     """Talent and sports preference heatmap page."""
     if not request.user.is_authenticated:
         return redirect('login_page')
@@ -220,6 +226,7 @@ def _normalize_preference_option(value):
 
 
 def _normalize_youth_name(value):
+    """Normalize names so duplicate checks ignore case, accents, and punctuation noise."""
     normalized = unicodedata.normalize('NFKD', str(value or ''))
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
     normalized = ''.join(ch if ch.isalnum() or ch.isspace() else ' ' for ch in normalized)
@@ -227,10 +234,13 @@ def _normalize_youth_name(value):
 
 
 def _find_duplicate_youth_record(name, birthdate, sex, exclude_id=None):
+    """Find an existing youth record that matches the same person identity."""
     normalized_name = _normalize_youth_name(name)
     if not normalized_name or not birthdate:
         return None
 
+    # Birthdate and sex narrow the queryset first; normalized name matching
+    # catches differences like extra spaces or accented characters.
     queryset = Youth.objects.select_related('barangay').filter(birthdate=birthdate, sex=sex)
     if exclude_id:
         queryset = queryset.exclude(id=exclude_id)
@@ -242,31 +252,15 @@ def _find_duplicate_youth_record(name, birthdate, sex, exclude_id=None):
 
 
 def _duplicate_youth_response(request, duplicate_youth, requested_barangay):
-    duplicate_purok = (duplicate_youth.purok or '').strip() or 'No purok recorded'
+    """Return a consistent payload when a youth already exists in another barangay."""
     current_barangay = duplicate_youth.barangay
     requested_name = requested_barangay.name if requested_barangay else 'the selected barangay'
-    assigned = _assigned_barangay(request.user)
-
-    if _is_system_admin(request.user):
-        error = (
-            f'Duplicate youth record detected. {duplicate_youth.name} is already registered in '
-            f'{current_barangay.name}, {duplicate_youth.municipality} ({duplicate_purok}). '
-            f'Open the existing record and update its barangay there instead of creating a new one.'
-        )
-    elif assigned and current_barangay.id == assigned.id:
-        error = (
-            f'Duplicate youth record detected. {duplicate_youth.name} is already registered in '
-            f'{current_barangay.name}, {duplicate_youth.municipality} ({duplicate_purok}). '
-            f'Use the existing record in {current_barangay.name} and change the address there if the youth moved to '
-            f'{requested_name}.'
-        )
-    else:
-        error = (
-            f'Duplicate youth record detected. {duplicate_youth.name} is already registered in '
-            f'{current_barangay.name}, {duplicate_youth.municipality} ({duplicate_purok}). '
-            f'Only {current_barangay.name} can transfer this youth record to {requested_name}. '
-            f'Please ask the current barangay to update the existing record instead of creating a new one.'
-        )
+    error = (
+        f'Duplicate Record Detected: {duplicate_youth.name} is already registered in '
+        f'Barangay {current_barangay.name}, {duplicate_youth.municipality}. '
+        f'To update your location, please visit your previous barangay office to request a records transfer '
+        f'to your new barangay.'
+    )
 
     return JsonResponse(
         {
@@ -1248,6 +1242,7 @@ def register_view(request):
 
 @csrf_exempt
 def login_view(request):
+    """Authenticate a user and start an access-log session."""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST method required'}, status=405)
 
@@ -1304,6 +1299,7 @@ def user_info_view(request):
 
 @login_required(login_url='/login/')
 def admin_account_activity_api(request):
+    """Admin-only API that returns recent account activity."""
     if not _is_system_admin(request.user):
         return JsonResponse({'error': 'Forbidden'}, status=403)
 
@@ -1334,6 +1330,7 @@ def admin_account_activity_api(request):
 @csrf_exempt
 @login_required(login_url='/login/')
 def admin_disable_account_api(request):
+    """Disable a barangay account."""
     if not _is_system_admin(request.user):
         return JsonResponse({'error': 'Forbidden'}, status=403)
     if request.method != 'POST':
@@ -1365,6 +1362,7 @@ def admin_disable_account_api(request):
 @csrf_exempt
 @login_required(login_url='/login/')
 def admin_enable_account_api(request):
+    """Enable a barangay account."""
     if not _is_system_admin(request.user):
         return JsonResponse({'error': 'Forbidden'}, status=403)
     if request.method != 'POST':
@@ -1395,6 +1393,7 @@ def admin_enable_account_api(request):
 @csrf_exempt
 @login_required(login_url='/login/')
 def admin_update_account_api(request):
+    """Update barangay account credentials or assignment."""
     if not _is_system_admin(request.user):
         return JsonResponse({'error': 'Forbidden'}, status=403)
     if request.method != 'POST':
@@ -1557,6 +1556,7 @@ def _ordered_barangays():
 
 
 def barangays_api(request):
+    """Return barangays scoped to the current user."""
     """Return all barangays as a JSON array: [{id, name}, ...]"""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
@@ -1565,6 +1565,7 @@ def barangays_api(request):
 
 
 def all_barangays_api(request):
+    """Return all barangays for admin tools."""
     """Return the full 22-barangay list for authenticated transfer/edit flows."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
@@ -1649,6 +1650,7 @@ def barangay_summary(request, bid):
 
 
 def demographics_api(request):
+    """Return aggregated demographics data for the dashboard."""
     """Per-barangay demographic breakdown used by the interactive reports table."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
@@ -1775,6 +1777,7 @@ def _build_barangay_age_heatmap_rows(youths, barangays, age_columns):
 
 
 def heatmap_api(request):
+    """Return heatmap data for map visualizations."""
     """Barangay by age heatmap data for key youth categories."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
@@ -1807,6 +1810,7 @@ def heatmap_api(request):
 
 
 def talent_sports_map_api(request):
+    """Return talent/sports data for map visualizations."""
     """Preference heatmap data for youth talents and sports by age."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized. Please login.'}, status=401)
@@ -1853,6 +1857,7 @@ def talent_sports_map_api(request):
 
 
 def unemployed_heatmap_api(request):
+    """Return unemployed youth data for heatmap views."""
     """Backward-compatible alias for the heatmap API."""
     return heatmap_api(request)
 
@@ -1863,6 +1868,7 @@ def unemployed_heatmap_api(request):
 
 @csrf_exempt
 def youth_api(request):
+    """Create, update, list, or delete youth records."""
     """
     GET: public list of all youth profiles
     POST: create a new profile (auth required)

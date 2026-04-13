@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Create the PostgreSQL database if it does not already exist."""
 import os
 import sys
 import psycopg2
@@ -6,6 +7,7 @@ from psycopg2 import sql
 
 
 def main():
+    # Read connection info from environment variables (with safe defaults for local dev).
     dbname = os.environ.get('POSTGRES_DB', 'lydo')
     user = os.environ.get('POSTGRES_USER', 'postgres')
     password = os.environ.get('POSTGRES_PASSWORD', '')
@@ -13,6 +15,7 @@ def main():
     port = os.environ.get('POSTGRES_PORT', '5432')
 
     try:
+        # Connect to the default postgres database to create the target DB if missing.
         conn = psycopg2.connect(dbname='postgres', user=user, password=password, host=host, port=port)
         conn.autocommit = True
         cur = conn.cursor()
