@@ -1,10 +1,4 @@
-fastapi
-uvicorn[standard]
-Django
-better-profanity
-django-cors-headers
-pandas
-numpy
-psycopg2-binary
+-r lydo_project/requirements.txt
 dj-database-url
-gunicorn
+numpy
+pandas
