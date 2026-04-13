@@ -101,11 +101,8 @@
         }
         .heatmap-summary-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 14px;
-        }
-        .heatmap-summary-grid.user-summary {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         .heatmap-stat {
             border: 1px solid var(--border);
@@ -140,12 +137,13 @@
         }
         .heatmap-scroll {
             overflow: auto;
+            max-height: min(72vh, 860px);
         }
         .heatmap-table {
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            min-width: 1260px;
+            min-width: 1460px;
         }
         .heatmap-table thead th {
             position: sticky;
@@ -161,6 +159,11 @@
             text-align: center;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
+            box-shadow: inset 0 -1px 0 rgba(211, 221, 236, 0.96);
+        }
+        .heatmap-table thead .heatmap-rowhead {
+            z-index: 6;
+            background: #f8faff;
         }
         .heatmap-table tbody td,
         .heatmap-table tbody th {
@@ -191,22 +194,47 @@
             font-size: 0.72rem;
             color: var(--text-muted);
         }
+        .heatmap-sex-head,
+        .heatmap-sex-cell,
         .heatmap-total-head,
         .heatmap-total-cell {
             position: sticky;
-            right: 0;
             z-index: 3;
             background: #fff;
         }
+        .heatmap-male-head,
+        .heatmap-male-cell {
+            right: 164px;
+            min-width: 82px;
+        }
+        .heatmap-female-head,
+        .heatmap-female-cell {
+            right: 82px;
+            min-width: 82px;
+        }
+        .heatmap-sex-cell {
+            text-align: center;
+            font-weight: 800;
+            color: var(--navy);
+            font-size: 0.8rem;
+        }
         .heatmap-total-head {
-            z-index: 4;
+            right: 0;
+            z-index: 7;
         }
         .heatmap-total-cell {
+            right: 0;
             min-width: 72px;
             text-align: center;
             font-weight: 800;
             color: var(--navy);
             font-size: 0.82rem;
+        }
+        .heatmap-table thead .heatmap-sex-head,
+        .heatmap-table thead .heatmap-total-head {
+            z-index: 6;
+            background: #f8faff;
+            box-shadow: inset 1px 0 0 rgba(211, 221, 236, 0.96), inset 0 -1px 0 rgba(211, 221, 236, 0.96);
         }
         .heatmap-cell {
             width: 58px;
@@ -227,6 +255,11 @@
         .heatmap-cell.zero {
             color: var(--text-light);
         }
+        .heatmap-table tbody tr:hover .heatmap-rowhead,
+        .heatmap-table tbody tr:hover .heatmap-sex-cell,
+        .heatmap-table tbody tr:hover .heatmap-total-cell {
+            background: #f8fbff;
+        }
         .heatmap-empty {
             padding: 42px 18px;
             text-align: center;
@@ -239,6 +272,9 @@
             }
             .heatmap-gradient-legend {
                 min-width: 100%;
+            }
+            .heatmap-scroll {
+                max-height: min(65vh, 720px);
             }
         }
     </style>
@@ -348,6 +384,16 @@
                         <div class="heatmap-stat-label">Strongest Hotspot</div>
                         <div id="heatmap-top-hotspot" class="heatmap-stat-value">Loading...</div>
                         <div id="heatmap-top-hotspot-note" class="heatmap-stat-note">Checking category concentration by age.</div>
+                    </div>
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Top Female Total</div>
+                        <div id="heatmap-top-female" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-female-note" class="heatmap-stat-note">Checking which barangay has the highest female count.</div>
+                    </div>
+                    <div class="heatmap-stat">
+                        <div class="heatmap-stat-label">Top Male Total</div>
+                        <div id="heatmap-top-male" class="heatmap-stat-value">Loading...</div>
+                        <div id="heatmap-top-male-note" class="heatmap-stat-note">Checking which barangay has the highest male count.</div>
                     </div>
                     <div id="heatmap-top-barangay-card" class="heatmap-stat">
                         <div class="heatmap-stat-label">Most Affected Barangay</div>
@@ -507,14 +553,10 @@
     }
 
     function syncHeatmapSummaryVisibility() {
-        const summaryGrid = document.getElementById('heatmap-summary-grid');
         const topBarangayCard = document.getElementById('heatmap-top-barangay-card');
         const isAdmin = !!heatmapState.currentUser?.is_admin;
         if (topBarangayCard) {
             topBarangayCard.style.display = isAdmin ? '' : 'none';
-        }
-        if (summaryGrid) {
-            summaryGrid.classList.toggle('user-summary', !isAdmin);
         }
     }
 
@@ -523,14 +565,24 @@
 
         let topHotspot = { barangay: 'None', age: '-', count: 0 };
         let topBarangay = { barangay: 'None', total: 0 };
+        let topFemale = { barangay: 'None', total: 0 };
+        let topMale = { barangay: 'None', total: 0 };
         let topAge = { age: '-', total: 0 };
 
         const ageTotals = Object.fromEntries(ages.map(age => [age, 0]));
 
         rows.forEach(row => {
             const rowTotal = Number(row.total || 0);
+            const femaleTotal = Number(row.female_total || 0);
+            const maleTotal = Number(row.male_total || 0);
             if (rowTotal > topBarangay.total) {
                 topBarangay = { barangay: row.barangay, total: rowTotal };
+            }
+            if (femaleTotal > topFemale.total) {
+                topFemale = { barangay: row.barangay, total: femaleTotal };
+            }
+            if (maleTotal > topMale.total) {
+                topMale = { barangay: row.barangay, total: maleTotal };
             }
 
             ages.forEach(age => {
@@ -552,6 +604,16 @@
             topHotspot.count > 0 ? `${topHotspot.barangay}, Age ${topHotspot.age}` : 'No hotspot yet';
         document.getElementById('heatmap-top-hotspot-note').textContent =
             topHotspot.count > 0 ? `${topHotspot.count} ${meta.noun} in the strongest single cell.` : `No ${meta.noun} recorded for ages 15 to 30.`;
+
+        document.getElementById('heatmap-top-female').textContent =
+            topFemale.total > 0 ? topFemale.barangay : 'No female data';
+        document.getElementById('heatmap-top-female-note').textContent =
+            topFemale.total > 0 ? `${topFemale.total} female ${meta.noun} across ages 15 to 30.` : `No female ${meta.noun} totals found.`;
+
+        document.getElementById('heatmap-top-male').textContent =
+            topMale.total > 0 ? topMale.barangay : 'No male data';
+        document.getElementById('heatmap-top-male-note').textContent =
+            topMale.total > 0 ? `${topMale.total} male ${meta.noun} across ages 15 to 30.` : `No male ${meta.noun} totals found.`;
 
         document.getElementById('heatmap-top-barangay').textContent =
             topBarangay.total > 0 ? topBarangay.barangay : 'No barangay data';
@@ -582,6 +644,8 @@
                 <tr>
                     <th class="heatmap-rowhead">Barangay</th>
                     ${ages.map(age => `<th>Age ${age}</th>`).join('')}
+                    <th class="heatmap-sex-head heatmap-male-head">Male</th>
+                    <th class="heatmap-sex-head heatmap-female-head">Female</th>
                     <th class="heatmap-total-head">Total</th>
                 </tr>
             </thead>
@@ -596,7 +660,7 @@
             }).join('');
 
             const subtitle = row.total > 0 && row.peak_age
-                ? `Peak at age ${row.peak_age} with ${row.peak_count}`
+                ? `Peak at age ${row.peak_age} with ${row.peak_count} | M ${row.male_total || 0} | F ${row.female_total || 0}`
                 : `No ${meta.noun} ages 15 to 30`;
 
             return `
@@ -606,6 +670,8 @@
                         <div class="heatmap-rowsub">${subtitle}</div>
                     </th>
                     ${cells}
+                    <td class="heatmap-sex-cell heatmap-male-cell">${row.male_total || 0}</td>
+                    <td class="heatmap-sex-cell heatmap-female-cell">${row.female_total || 0}</td>
                     <td class="heatmap-total-cell">${row.total}</td>
                 </tr>
             `;

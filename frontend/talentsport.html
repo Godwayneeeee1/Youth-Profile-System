@@ -104,7 +104,7 @@
         }
         .talent-map-summary-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 14px;
         }
         .talent-map-stat {
@@ -140,12 +140,13 @@
         }
         .talent-map-scroll {
             overflow: auto;
+            max-height: min(72vh, 860px);
         }
         .talent-map-table {
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            min-width: 1220px;
+            min-width: 1420px;
         }
         .talent-map-table thead th {
             position: sticky;
@@ -161,6 +162,19 @@
             text-align: center;
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
+            box-shadow: inset 0 -1px 0 rgba(211, 221, 236, 0.96);
+        }
+        .talent-map-table thead .talent-map-rowhead {
+            z-index: 6;
+            background: #f8faff;
+        }
+        .talent-map-table thead .talent-map-total-head {
+            z-index: 7;
+            background: #f8faff;
+        }
+        .talent-map-table thead .talent-map-sex-head {
+            z-index: 6;
+            background: #f8faff;
         }
         .talent-map-table tbody td,
         .talent-map-table tbody th {
@@ -187,19 +201,48 @@
             font-size: 0.72rem;
             color: var(--text-muted);
         }
+        .talent-map-sex-head,
+        .talent-map-sex-cell,
         .talent-map-total-head,
         .talent-map-total-cell {
             position: sticky;
-            right: 0;
             z-index: 3;
             background: #fff;
         }
+        .talent-map-male-head,
+        .talent-map-male-cell {
+            right: 164px;
+            min-width: 82px;
+        }
+        .talent-map-female-head,
+        .talent-map-female-cell {
+            right: 82px;
+            min-width: 82px;
+        }
+        .talent-map-sex-cell {
+            text-align: center;
+            font-weight: 800;
+            color: var(--navy);
+            font-size: 0.8rem;
+        }
+        .talent-map-total-head,
         .talent-map-total-cell {
+            right: 0;
             min-width: 72px;
             text-align: center;
             font-weight: 800;
             color: var(--navy);
             font-size: 0.82rem;
+        }
+        .talent-map-table thead .talent-map-male-head,
+        .talent-map-table thead .talent-map-female-head,
+        .talent-map-table thead .talent-map-total-head {
+            box-shadow: inset 1px 0 0 rgba(211, 221, 236, 0.96), inset 0 -1px 0 rgba(211, 221, 236, 0.96);
+        }
+        .talent-map-table tbody tr:hover .talent-map-rowhead,
+        .talent-map-table tbody tr:hover .talent-map-sex-cell,
+        .talent-map-table tbody tr:hover .talent-map-total-cell {
+            background: #f8fbff;
         }
         .talent-map-cell {
             width: 58px;
@@ -223,6 +266,9 @@
             }
             .talent-map-gradient-legend {
                 min-width: 100%;
+            }
+            .talent-map-scroll {
+                max-height: min(65vh, 720px);
             }
         }
     </style>
@@ -332,6 +378,16 @@
                         <div class="talent-map-stat-label">Most Chosen</div>
                         <div id="talent-map-top-preference" class="talent-map-stat-value">Loading...</div>
                         <div id="talent-map-top-preference-note" class="talent-map-stat-note">Checking which preference is selected the most.</div>
+                    </div>
+                    <div class="talent-map-stat">
+                        <div class="talent-map-stat-label">Top Female Pick</div>
+                        <div id="talent-map-top-female-preference" class="talent-map-stat-value">Loading...</div>
+                        <div id="talent-map-top-female-preference-note" class="talent-map-stat-note">Checking which preference is most popular among female youth.</div>
+                    </div>
+                    <div class="talent-map-stat">
+                        <div class="talent-map-stat-label">Top Male Pick</div>
+                        <div id="talent-map-top-male-preference" class="talent-map-stat-value">Loading...</div>
+                        <div id="talent-map-top-male-preference-note" class="talent-map-stat-note">Checking which preference is most popular among male youth.</div>
                     </div>
                     <div class="talent-map-stat">
                         <div class="talent-map-stat-label">Minimal Chosen</div>
@@ -480,15 +536,39 @@
         });
     }
 
+    function findTopPreferenceBySex(rows, sexKey) {
+        const populated = (Array.isArray(rows) ? rows : []).filter(row => (row?.[sexKey] || 0) > 0);
+        if (!populated.length) return null;
+        return populated.reduce((best, row) => {
+            if (!best) return row;
+            if ((row[sexKey] || 0) > (best[sexKey] || 0)) return row;
+            if ((row[sexKey] || 0) === (best[sexKey] || 0) && (row.total || 0) > (best.total || 0)) return row;
+            return best;
+        }, null);
+    }
+
     function updateSummary(metricData) {
+        const rows = Array.isArray(metricData?.rows) ? metricData.rows : [];
         const top = metricData?.top_preference;
         const least = metricData?.least_preference;
+        const topFemale = findTopPreferenceBySex(rows, 'female');
+        const topMale = findTopPreferenceBySex(rows, 'male');
         const topSportOverall = talentMapState.payload?.top_sport_overall || null;
 
         document.getElementById('talent-map-top-preference').textContent = top ? top.label : 'No data yet';
         document.getElementById('talent-map-top-preference-note').textContent = top
             ? `Male: ${top.male || 0} | Female: ${top.female || 0} | Total: ${top.total}`
             : 'No saved preferences yet for the current scope.';
+
+        document.getElementById('talent-map-top-female-preference').textContent = topFemale ? topFemale.label : 'No data yet';
+        document.getElementById('talent-map-top-female-preference-note').textContent = topFemale
+            ? `Female: ${topFemale.female || 0} | Male: ${topFemale.male || 0} | Total: ${topFemale.total || 0}`
+            : 'No female preference data saved yet for the current scope.';
+
+        document.getElementById('talent-map-top-male-preference').textContent = topMale ? topMale.label : 'No data yet';
+        document.getElementById('talent-map-top-male-preference-note').textContent = topMale
+            ? `Male: ${topMale.male || 0} | Female: ${topMale.female || 0} | Total: ${topMale.total || 0}`
+            : 'No male preference data saved yet for the current scope.';
 
         document.getElementById('talent-map-least-preference').textContent = least ? least.label : 'No data yet';
         document.getElementById('talent-map-least-preference-note').textContent = least
@@ -547,6 +627,8 @@
                         <div class="talent-map-rowsub">${row.total} total selection${row.total === 1 ? '' : 's'}</div>
                     </th>
                     ${cells}
+                    <td class="talent-map-sex-cell talent-map-male-cell">${row.male || 0}</td>
+                    <td class="talent-map-sex-cell talent-map-female-cell">${row.female || 0}</td>
                     <td class="talent-map-total-cell">${row.total}</td>
                 </tr>
             `;
@@ -558,6 +640,8 @@
                     <tr>
                         <th class="talent-map-rowhead">Preference</th>
                         ${ages.map(age => `<th>${age}</th>`).join('')}
+                        <th class="talent-map-sex-head talent-map-male-head">Male</th>
+                        <th class="talent-map-sex-head talent-map-female-head">Female</th>
                         <th class="talent-map-total-head">Total</th>
                     </tr>
                 </thead>

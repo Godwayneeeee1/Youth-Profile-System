@@ -11,6 +11,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.join(ROOT, "lydo_project")
+FRONTEND_ROOT = os.path.join(ROOT, "frontend")
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -29,6 +30,8 @@ def main() -> None:
         host=host,
         port=port,
         reload=reload_enabled,
+        reload_dirs=[PROJECT_ROOT, FRONTEND_ROOT],
+        reload_includes=["*.py", "*.html", "*.css", "*.js"],
         log_level=log_level,
         proxy_headers=True,
         forwarded_allow_ips="*",

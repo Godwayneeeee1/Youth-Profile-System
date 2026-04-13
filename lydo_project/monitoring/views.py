@@ -1722,7 +1722,11 @@ def _build_barangay_age_heatmap_rows(youths, barangays, age_columns):
     today = datetime.date.today()
 
     matrix = {
-        b.name: {age: 0 for age in age_columns}
+        b.name: {
+            'counts': {age: 0 for age in age_columns},
+            'male_total': 0,
+            'female_total': 0,
+        }
         for b in barangays
     }
 
@@ -1738,23 +1742,31 @@ def _build_barangay_age_heatmap_rows(youths, barangays, age_columns):
         )
         age_key = str(age)
         barangay_name = y['barangay__name']
+        sex = (y.get('sex') or '').strip().lower()
 
-        if barangay_name not in matrix or age_key not in matrix[barangay_name]:
+        if barangay_name not in matrix or age_key not in matrix[barangay_name]['counts']:
             continue
 
-        matrix[barangay_name][age_key] += 1
-        if matrix[barangay_name][age_key] > max_count:
-            max_count = matrix[barangay_name][age_key]
+        matrix[barangay_name]['counts'][age_key] += 1
+        if sex == 'male':
+            matrix[barangay_name]['male_total'] += 1
+        elif sex == 'female':
+            matrix[barangay_name]['female_total'] += 1
+        if matrix[barangay_name]['counts'][age_key] > max_count:
+            max_count = matrix[barangay_name]['counts'][age_key]
 
     rows = []
     for b in barangays:
-        counts = matrix[b.name]
+        row_data = matrix[b.name]
+        counts = row_data['counts']
         total = sum(counts.values())
         peak_age = max(age_columns, key=lambda age: counts[age]) if total else None
         rows.append({
             'barangay': b.name,
             'counts': counts,
             'total': total,
+            'male_total': row_data['male_total'],
+            'female_total': row_data['female_total'],
             'peak_age': peak_age,
             'peak_count': counts[peak_age] if peak_age else 0,
         })
@@ -1779,7 +1791,7 @@ def heatmap_api(request):
 
     metrics = {}
     for metric_key, queryset in metric_queries.items():
-        youths = queryset.values('barangay__name', 'birthdate')
+        youths = queryset.values('barangay__name', 'birthdate', 'sex')
         rows, max_count = _build_barangay_age_heatmap_rows(youths, barangays, age_columns)
         metrics[metric_key] = {
             'rows': rows,
