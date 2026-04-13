@@ -83,11 +83,18 @@ MIDDLEWARE = [
 ROOT_URLCONF = 'lydo_project.urls'
 ASGI_APPLICATION = 'lydo_project.asgi.application'
 
+FRONTEND_DIR = (BASE_DIR / '..' / 'frontend').resolve()
+STATICFILES_DIR = (BASE_DIR / 'staticfiles').resolve()
+
+TEMPLATE_DIRS = [str(FRONTEND_DIR)]
+if STATICFILES_DIR.exists():
+    # Fallback so templates still resolve if frontend assets were moved.
+    TEMPLATE_DIRS.append(str(STATICFILES_DIR))
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # THIS IS THE CRITICAL FIX:
-        'DIRS': [os.path.join(BASE_DIR, '..', 'frontend')],
+        'DIRS': TEMPLATE_DIRS,
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -209,7 +216,7 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, '..', 'frontend'),
+    str(FRONTEND_DIR),
 ]
 
 # Default primary key field type
